@@ -238,10 +238,10 @@ const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   :root {
-    /* Page white; panels/dialog surfaces warm gray */
+    /* Page white; panels/dialog surfaces light gray */
     --r-bg: #ffffff;
-    --r-surface: #d9d2c6;
-    --r-surface-hot: #ece8e2;
+    --r-surface: #e8e8e8;
+    --r-surface-hot: #f2f2f2;
     --r-line: #AAB7BF;
     --r-line-muted: #9C9C9C;
     --r-line-focus: #261201;
@@ -253,7 +253,7 @@ const STYLES = `
     --r-earth: #5F503E;
     --r-accent: #AD1D1D;
     --r-accent-hover: #8f1818;
-    --r-run-arrow: #736b1e;
+    --r-run-arrow: #ffffff;
     --r-cancel: #bf1b1b;
     --r-selected: #ed3f1c;
     --r-on-selected: #ffffff;
@@ -541,7 +541,7 @@ const STYLES = `
 
   .r-opt {
     display: inline-flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
     font-size: 11px;
     font-family: var(--r-mono);
@@ -549,32 +549,51 @@ const STYLES = `
     color: var(--r-text-muted);
     cursor: pointer;
     user-select: none;
-    flex: 1 1 200px;
+    flex: 0 1 auto;
     min-width: 0;
   }
   .r-opt .r-opt-text {
     min-width: 0;
     white-space: normal;
-    line-height: 1.35;
+    line-height: 1.25;
+    display: flex;
+    align-items: center;
   }
-  .r-opt input {
+  .r-opt input[type="checkbox"] {
     width: 14px;
     height: 14px;
     margin: 0;
     flex-shrink: 0;
     accent-color: var(--r-accent);
     cursor: pointer;
+    align-self: center;
   }
 
   .toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px 16px;
+    gap: 10px 12px;
     margin-bottom: 1rem;
     padding-bottom: 2px;
     box-sizing: border-box;
     row-gap: 12px;
+  }
+  .toolbar-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .toolbar-field .r-label {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+  }
+  .toolbar-r-opt {
+    gap: 6px;
+    max-width: min(22rem, 100%);
+    margin-left: 2px;
   }
   .toolbar > *:not(.toolbar-grow) { flex-shrink: 0; }
   .toolbar-grow { flex: 1 1 12px; min-width: 12px; }
@@ -699,6 +718,7 @@ const STYLES = `
   .tag-star-filter {
     flex: 0 0 auto;
     align-items: center;
+    align-self: center;
     max-width: 160px;
   }
   .tag-bank {
@@ -1003,19 +1023,30 @@ const STYLES = `
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    align-items: center;
+    align-items: stretch;
   }
   .purge-bar input {
     flex: 1;
     min-width: 140px;
     max-width: 280px;
-    height: 32px;
+    height: 36px;
+    min-height: 36px;
+    box-sizing: border-box;
     padding: 0 10px;
     font-size: 12px;
     border: 1px solid var(--r-line);
     border-radius: var(--r-radius);
     background: var(--r-surface-hot);
     font-family: var(--r-font);
+  }
+  .purge-bar .btn {
+    height: 36px;
+    min-height: 36px;
+    box-sizing: border-box;
+    align-self: stretch;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--r-text-muted); }
@@ -1270,7 +1301,11 @@ export default function App() {
         sbFetch('results'),
       ]);
       if (chRes?.channels) {
-        setChannels(chRes.channels.map((c) => ({ id: c.id, name: c.name })));
+        const list = chRes.channels.map((c) => ({ id: c.id, name: c.name }));
+        setChannels(list);
+        const ids = new Set(list.map((c) => c.id));
+        setDigestChannelIds(ids);
+        setVisibleChannelIds(ids);
       }
       if (resRes?.results?.length > 0) {
         const mapped = resRes.results.map(r => ({
@@ -1987,64 +2022,89 @@ export default function App() {
             )}
           </button>
 
-          <span className="r-label">
-            <PretextLines
-              as="span"
-              text="Timeframe"
-              font={PT.toolbarLabel}
-              lineHeightPx={PT_LH.toolbarLabel}
-              fixedWidth={96}
-              style={{ display: "inline-block" }}
-            />
-          </span>
-          <select className="r-select" value={since} onChange={(e) => setSince(e.target.value)}>
-            <option>24 hours</option>
-            <option>3 days</option>
-            <option>7 days</option>
-            <option>1 month</option>
-            <option>6 months</option>
-            <option>1 year</option>
-            <option>2 years</option>
-            <option>5 years</option>
-            <option>All time</option>
-          </select>
+          <div className="toolbar-field">
+            <span className="r-label">
+              <PretextLines
+                as="span"
+                text="Timeframe"
+                font={PT.toolbarLabel}
+                lineHeightPx={PT_LH.toolbarLabel}
+                fixedWidth={72}
+                style={{ display: "inline-block" }}
+              />
+            </span>
+            <select className="r-select" value={since} onChange={(e) => setSince(e.target.value)} aria-label="Timeframe">
+              <option>24 hours</option>
+              <option>3 days</option>
+              <option>7 days</option>
+              <option>1 month</option>
+              <option>6 months</option>
+              <option>1 year</option>
+              <option>2 years</option>
+              <option>5 years</option>
+              <option>All time</option>
+            </select>
+          </div>
 
           {videos.length > 0 && (
-            <>
+            <div className="toolbar-field">
               <span className="r-label">
                 <PretextLines
                   as="span"
                   text="Sort"
                   font={PT.toolbarLabel}
                   lineHeightPx={PT_LH.toolbarLabel}
-                  fixedWidth={48}
+                  fixedWidth={36}
                   style={{ display: "inline-block" }}
                 />
               </span>
-              <select className="r-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <select className="r-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort">
                 <option>Date (Newest)</option>
                 <option>Date (Oldest)</option>
                 <option>Author (A-Z)</option>
                 <option>Author (Z-A)</option>
               </select>
-            </>
+            </div>
           )}
+
+          <label
+            className="r-opt toolbar-r-opt"
+            title="Off: skip YouTube enrichment for videos already in this digest (lower quota). On: fetch and enrich every video again."
+          >
+            <input
+              type="checkbox"
+              checked={forceYoutubeRefresh}
+              onChange={(e) => setForceYoutubeRefresh(e.target.checked)}
+              disabled={running}
+            />
+            <span className="r-opt-text">
+              <PretextLines
+                as="span"
+                text="Full YouTube re-fetch (ignore skip list)"
+                font={PT.optLabel}
+                lineHeightPx={PT_LH.optLabel}
+                fixedWidth={280}
+                style={{ display: "inline-block", verticalAlign: "middle" }}
+              />
+            </span>
+          </label>
 
           <div className="toolbar-grow" />
 
           {videos.length > 0 && (
             <>
-              <span className="r-label">
-                <PretextLines
-                  as="span"
-                  text="Layout"
-                  font={PT.toolbarLabel}
-                  lineHeightPx={PT_LH.toolbarLabel}
-                  fixedWidth={56}
-                  style={{ display: "inline-block" }}
-                />
-              </span>
-              <div className="seg" role="group" aria-label="Result layout">
+              <div className="toolbar-field">
+                <span className="r-label">
+                  <PretextLines
+                    as="span"
+                    text="Layout"
+                    font={PT.toolbarLabel}
+                    lineHeightPx={PT_LH.toolbarLabel}
+                    fixedWidth={48}
+                    style={{ display: "inline-block" }}
+                  />
+                </span>
+                <div className="seg" role="group" aria-label="Result layout">
                 <button
                   type="button"
                   className={viewMode === "list" ? "is-on" : ""}
@@ -2074,6 +2134,7 @@ export default function App() {
                   />
                 </button>
               </div>
+              </div>
               <button type="button" className="btn" onClick={exportJSON}>
                 <PretextLines
                   as="span"
@@ -2096,28 +2157,6 @@ export default function App() {
               </button>
             </>
           )}
-
-          <label
-            className="r-opt"
-            title="Off: skip YouTube enrichment for videos already in this digest (lower quota). On: fetch and enrich every video again."
-          >
-            <input
-              type="checkbox"
-              checked={forceYoutubeRefresh}
-              onChange={(e) => setForceYoutubeRefresh(e.target.checked)}
-              disabled={running}
-            />
-            <span className="r-opt-text">
-              <PretextLines
-                as="span"
-                text="Full YouTube re-fetch (ignore skip list)"
-                font={PT.optLabel}
-                lineHeightPx={PT_LH.optLabel}
-                fixedWidth={320}
-                style={{ display: "inline-block", verticalAlign: "middle" }}
-              />
-            </span>
-          </label>
         </div>
 
         {status && (

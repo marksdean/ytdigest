@@ -13,7 +13,8 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "YT Digest",
-  description: "Channel video digest and tags",
+  description:
+    "Fetch YouTube channel uploads, summarize with your agent, filter by tags—clear controls, no clutter.",
 };
 
 export default function RootLayout({ children }) {

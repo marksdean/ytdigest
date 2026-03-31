@@ -160,6 +160,30 @@ function normalizeChannelLabel(s) {
     .toLowerCase();
 }
 
+/** YouTube titles often differ slightly from saved channel names (prefix, suffix, punctuation). */
+function looselyMatchChannelNames(storedChannel, tableName) {
+  const a = normalizeChannelLabel(storedChannel);
+  const b = normalizeChannelLabel(tableName);
+  if (a === b) return true;
+  if (a.length < 3 || b.length < 3) return false;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  if (a.startsWith(`${b} `) || b.startsWith(`${a} `)) return true;
+  if (a.startsWith(`${b}|`) || b.startsWith(`${a}|`)) return true;
+  return false;
+}
+
+function videoMatchesVisibleChannels(v, visibleChannelNames, channels, visibleChannelIds) {
+  if (visibleChannelNames === null) return true;
+  if (visibleChannelNames.size === 0) return false;
+  const vn = normalizeChannelLabel(v.channel);
+  if (visibleChannelNames.has(vn)) return true;
+  for (const c of channels) {
+    if (!visibleChannelIds.has(c.id)) continue;
+    if (looselyMatchChannelNames(v.channel, c.name)) return true;
+  }
+  return false;
+}
+
 /**
  * Stable key for list rows and expand/load UI. AI/DB `id` can collide or be missing across items.
  */
@@ -171,16 +195,32 @@ function videoRowKey(v) {
 }
 
 const STYLES = `
+  /* Design intent: Dieter Rams’ ten principles for good design — see
+     https://uxdesign.cc/dieter-rams-and-ten-principles-for-good-design-61cc32bcd6e6
+     Useful, understandable, unobtrusive, honest, long-lasting, thorough, minimal,
+     environmentally considerate (lighter motion, no decorative excess), aesthetic clarity. */
+
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   :root {
-    --r-bg: #E8E8E8;
-    --r-surface: #FFFFFF;
-    --r-line: #C8C8C8;
-    --r-line-focus: #1A1A1A;
-    --r-text: #1A1A1A;
-    --r-text-muted: #5A5A5A;
-    --r-text-faint: #8A8A8A;
+    /* Dieter Rams — DR01 + DR03 industrial palettes */
+    --r-bg: #E2E2D9;
+    --r-surface: #E1E4E1;
+    --r-surface-hot: #F2F1EC;
+    --r-line: #AAB7BF;
+    --r-line-muted: #9C9C9C;
+    --r-line-focus: #261201;
+    --r-text: #261201;
+    --r-text-muted: #736356;
+    --r-text-faint: #9C9C9C;
+    --r-taupe: #BFB1A8;
+    --r-sand: #C09C6F;
+    --r-earth: #5F503E;
+    --r-accent: #AD1D1D;
+    --r-accent-hover: #8f1818;
+    --r-accent-warm: #BF7C2A;
+    --r-on-dark: #E1E4E1;
+    --r-on-accent: #F2F1EC;
     --r-radius: 2px;
     --r-font: 'Inter', system-ui, sans-serif;
     --r-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -189,17 +229,75 @@ const STYLES = `
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+
   body {
     font-family: var(--r-font);
     background: var(--r-bg);
     color: var(--r-text);
     -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--r-line-focus);
+    outline-offset: 3px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+    .spinner { animation: none !important; border-top-color: var(--r-text); }
+    .r-chevron { transition: none !important; }
   }
 
   .root {
+    position: relative;
     max-width: 1320px;
     margin: 0 auto;
     padding: 2rem 1.75rem 3rem;
+  }
+
+  .rams-skip {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .rams-skip:focus {
+    position: fixed;
+    z-index: 10000;
+    left: 12px;
+    top: 12px;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 10px 14px;
+    clip: auto;
+    overflow: visible;
+    white-space: normal;
+    font-size: 12px;
+    font-family: var(--r-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--r-on-dark);
+    background: var(--r-text);
+    border: 1px solid var(--r-line-focus);
+    border-radius: var(--r-radius);
   }
 
   .r-label {
@@ -211,7 +309,7 @@ const STYLES = `
     color: var(--r-text-faint);
   }
 
-  .header { margin-bottom: 2rem; border-bottom: 1px solid var(--r-line); padding-bottom: 1.25rem; }
+  .header { margin-bottom: 1.75rem; border-bottom: 1px solid var(--r-line); padding-bottom: 1.15rem; }
   .header h1 {
     font-size: 1.375rem;
     font-weight: 600;
@@ -326,7 +424,7 @@ const STYLES = `
   .btn-text:hover:not(.is-on) { color: var(--r-text); }
   .btn-text.is-on {
     background: var(--r-text);
-    color: var(--r-surface);
+    color: var(--r-on-dark);
     border-radius: var(--r-radius);
   }
   .ch-cb {
@@ -334,7 +432,7 @@ const STYLES = `
     height: 14px;
     margin: 0;
     cursor: pointer;
-    accent-color: var(--r-text);
+    accent-color: var(--r-accent);
   }
   .channel-name { font-weight: 500; color: var(--r-text); text-align: left; }
   .channel-id { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); text-align: left; word-break: break-all; }
@@ -355,7 +453,7 @@ const STYLES = `
     flex: 1;
     min-width: 140px;
     height: 36px;
-    background: var(--r-bg);
+    background: var(--r-surface-hot);
     border: 1px solid var(--r-line);
     border-radius: var(--r-radius);
     padding: 0 12px;
@@ -381,12 +479,12 @@ const STYLES = `
   }
   .btn:hover { background: var(--r-bg); }
   .btn.primary {
-    background: var(--r-text);
-    color: var(--r-surface);
-    border-color: var(--r-text);
+    background: var(--r-accent);
+    color: var(--r-on-accent);
+    border-color: var(--r-accent);
   }
-  .btn.primary:hover { opacity: 0.92; }
-  .btn.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn.primary:hover { background: var(--r-accent-hover); border-color: var(--r-accent-hover); }
+  .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .r-opt {
     display: inline-flex;
@@ -405,7 +503,7 @@ const STYLES = `
     height: 14px;
     margin: 0;
     flex-shrink: 0;
-    accent-color: var(--r-text);
+    accent-color: var(--r-accent);
     cursor: pointer;
   }
 
@@ -418,6 +516,8 @@ const STYLES = `
     overflow-x: auto;
     overflow-y: hidden;
     padding-bottom: 2px;
+    padding-inline-end: 12px;
+    box-sizing: border-box;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: var(--r-line) transparent;
@@ -462,7 +562,7 @@ const STYLES = `
   .seg button + button { border-left: 1px solid var(--r-line); }
   .seg button.is-on {
     background: var(--r-text);
-    color: var(--r-surface);
+    color: var(--r-on-dark);
   }
 
   .status-bar {
@@ -477,9 +577,9 @@ const STYLES = `
     background: var(--r-surface);
   }
   .status-bar .status-msg { flex: 1; min-width: 0; }
-  .status-bar.running { border-color: var(--r-text-faint); }
-  .status-bar.error { border-color: var(--r-text); }
-  .status-bar.success { border-color: var(--r-line-focus); }
+  .status-bar.running { border-color: var(--r-line-muted); }
+  .status-bar.error { border-color: var(--r-accent); }
+  .status-bar.success { border-color: var(--r-earth); }
 
   .spinner {
     width: 14px;
@@ -490,6 +590,8 @@ const STYLES = `
     animation: spin 0.65s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  .rams-results { display: contents; }
 
   .tag-panel {
     background: var(--r-surface);
@@ -542,7 +644,7 @@ const STYLES = `
   }
   .filter-chip.active {
     background: var(--r-text);
-    color: var(--r-surface);
+    color: var(--r-on-dark);
     border-color: var(--r-text);
   }
   .filter-chip:hover:not(.active) { border-color: var(--r-text-faint); }
@@ -678,22 +780,22 @@ const STYLES = `
     word-break: break-word;
   }
   .r-expand-body.desc-linkified a {
-    color: var(--r-text);
+    color: var(--r-earth);
     text-decoration: underline;
     text-underline-offset: 3px;
     word-break: break-all;
   }
-  .r-expand-body.desc-linkified a:hover { opacity: 0.75; }
+  .r-expand-body.desc-linkified a:hover { color: var(--r-accent-warm); }
   .link-list { list-style: none; }
   .link-list li { margin-bottom: 8px; }
   .link-list a {
     font-size: 12px;
-    color: var(--r-text);
+    color: var(--r-earth);
     text-decoration: underline;
     text-underline-offset: 3px;
     word-break: break-all;
   }
-  .link-list a:hover { opacity: 0.7; }
+  .link-list a:hover { color: var(--r-accent-warm); }
   .link-kind {
     font-family: var(--r-mono);
     font-size: 9px;
@@ -716,16 +818,22 @@ const STYLES = `
   .watch-link {
     font-size: 12px;
     font-weight: 500;
-    color: var(--r-text);
+    color: var(--r-earth);
     text-decoration: none;
     letter-spacing: 0.02em;
   }
-  .watch-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .watch-link:hover { color: var(--r-accent); text-decoration: underline; text-underline-offset: 3px; }
   .key-points { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); }
 
-  .empty-state { text-align: center; padding: 3rem 1rem; color: var(--r-text-faint); }
-  .empty-state p { font-size: 13px; margin-top: 10px; max-width: 36ch; margin-left: auto; margin-right: auto; line-height: 1.5; }
-  .big-icon { font-size: 28px; margin-bottom: 6px; opacity: 0.4; }
+  .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--r-text-muted); }
+  .empty-state p { font-size: 13px; margin-top: 8px; max-width: 38ch; margin-left: auto; margin-right: auto; line-height: 1.55; }
+  .big-icon { display: none; }
+
+  @media print {
+    .toolbar, .rams-skip, .add-row, .ch-td-remove, .remove-btn, .r-expand-btn, .tag-panel { display: none !important; }
+    .root { padding: 0; max-width: none; }
+    body { background: #fff; }
+  }
 `;
 
 function abortIfNeeded(signal) {
@@ -1171,7 +1279,12 @@ export default function App() {
         list = [];
       } else {
         list = list.filter((v) =>
-          visibleChannelNames.has(normalizeChannelLabel(v.channel))
+          videoMatchesVisibleChannels(
+            v,
+            visibleChannelNames,
+            channels,
+            visibleChannelIds
+          )
         );
       }
     }
@@ -1186,7 +1299,7 @@ export default function App() {
       return 0;
     });
     return list;
-  }, [videos, tagFilter, visibleChannelNames, sortBy]);
+  }, [videos, tagFilter, visibleChannelNames, sortBy, channels, visibleChannelIds]);
 
   const exportJSON = useCallback(() => {
     const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: "application/json" });
@@ -1228,6 +1341,9 @@ export default function App() {
     <>
       <style>{STYLES}</style>
       <div className="root">
+        <a className="rams-skip" href="#main-content">
+          Skip to content
+        </a>
         <header className="header">
           <p className="r-label" style={{ marginBottom: 10 }}>
             <PretextLines
@@ -1251,7 +1367,7 @@ export default function App() {
           <p>
             <PretextLines
               as="span"
-              text="Fetches channel uploads, summarizes them, and tags entries for filtering. Built for clarity and long lists."
+              text="Fetch uploads, summarize, tag for filters—nothing extra."
               font={PT.headerBody}
               lineHeightPx={PT_LH.headerBody}
               style={{ display: "block" }}
@@ -1259,7 +1375,8 @@ export default function App() {
           </p>
         </header>
 
-        <div className="panel">
+        <main id="main-content">
+        <section className="panel" aria-label="Channels">
           <p className="r-label" style={{ marginBottom: 12 }}>
             <PretextLines
               as="span"
@@ -1463,9 +1580,9 @@ export default function App() {
               />
             </button>
           </div>
-        </div>
+        </section>
 
-        <div className="toolbar">
+        <div className="toolbar" role="toolbar" aria-label="Digest filters and actions">
           <span className="r-label">
             <PretextLines
               as="span"
@@ -1508,6 +1625,22 @@ export default function App() {
               </select>
             </>
           )}
+
+          <button
+            type="button"
+            className="btn primary"
+            onClick={handleRun}
+            disabled={running || channels.length === 0 || digestChannelIds.size === 0}
+          >
+            <PretextLines
+              as="span"
+              text={running ? "Running…" : "Run digest"}
+              font={PT.runBtn}
+              lineHeightPx={PT_LH.runBtn}
+              fixedWidth={140}
+              style={{ display: "inline-block" }}
+            />
+          </button>
 
           <div className="toolbar-grow" />
 
@@ -1595,26 +1728,10 @@ export default function App() {
               style={{ display: "inline-block", verticalAlign: "middle" }}
             />
           </label>
-
-          <button
-            type="button"
-            className="btn primary"
-            onClick={handleRun}
-            disabled={running || channels.length === 0 || digestChannelIds.size === 0}
-          >
-            <PretextLines
-              as="span"
-              text={running ? "Running…" : "Run digest"}
-              font={PT.runBtn}
-              lineHeightPx={PT_LH.runBtn}
-              fixedWidth={140}
-              style={{ display: "inline-block" }}
-            />
-          </button>
         </div>
 
         {status && (
-          <div className={`status-bar ${statusType}`}>
+          <div className={`status-bar ${statusType}`} role="status" aria-live="polite">
             {statusType === "running" && <div className="spinner" />}
             <span className="status-msg">
               <PretextLines text={status || ""} font={PT.status} lineHeightPx={PT_LH.status} />
@@ -1635,7 +1752,7 @@ export default function App() {
         )}
 
         {videos.length > 0 && (
-          <>
+          <section className="rams-results" aria-label="Digest results">
             <div className="tag-panel">
               <div className="tag-panel-top">
                 <span className="r-label">
@@ -1908,7 +2025,7 @@ export default function App() {
                         className="watch-link"
                         href={`https://www.youtube.com/watch?v=${v.videoId}`}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                       >
                         <PretextLines
                           as="span"
@@ -1945,25 +2062,15 @@ export default function App() {
                 );
               })}
             </div>
-          </>
+          </section>
         )}
 
         {!running && videos.length === 0 && !status && (
           <div className="empty-state">
-            <div className="big-icon">
-              <PretextLines
-                as="span"
-                text="□"
-                font={PT.emptyState}
-                lineHeightPx={PT_LH.emptyState}
-                fixedWidth={48}
-                style={{ display: "inline-block" }}
-              />
-            </div>
             <p>
               <PretextLines
                 as="span"
-                text="Add channels and run the digest. Results stay compact in grid view or scroll in list view."
+                text="Add channels, run digest. Results list below; use layout to switch list or grid."
                 font={PT.emptyState}
                 lineHeightPx={PT_LH.emptyState}
                 style={{ display: "block" }}
@@ -1971,6 +2078,7 @@ export default function App() {
             </p>
           </div>
         )}
+        </main>
       </div>
     </>
   );

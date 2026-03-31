@@ -175,6 +175,7 @@ function looselyMatchChannelNames(storedChannel, tableName) {
 function videoMatchesVisibleChannels(v, visibleChannelNames, channels, visibleChannelIds) {
   if (visibleChannelNames === null) return true;
   if (visibleChannelNames.size === 0) return false;
+  if (v.channelId && visibleChannelIds.has(v.channelId)) return true;
   const vn = normalizeChannelLabel(v.channel);
   if (visibleChannelNames.has(vn)) return true;
   for (const c of channels) {
@@ -261,9 +262,9 @@ const STYLES = `
 
   .root {
     position: relative;
-    max-width: 1320px;
+    max-width: min(1680px, 100%);
     margin: 0 auto;
-    padding: 2rem 1.75rem 3rem;
+    padding: 2rem clamp(1rem, 3vw, 2rem) 3rem;
   }
 
   .rams-skip {
@@ -488,7 +489,7 @@ const STYLES = `
 
   .r-opt {
     display: inline-flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     font-size: 11px;
     font-family: var(--r-mono);
@@ -496,7 +497,13 @@ const STYLES = `
     color: var(--r-text-muted);
     cursor: pointer;
     user-select: none;
-    max-width: 220px;
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .r-opt .r-opt-text {
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.35;
   }
   .r-opt input {
     width: 14px;
@@ -509,23 +516,31 @@ const STYLES = `
 
   .toolbar {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px 16px;
     margin-bottom: 1rem;
-    overflow-x: auto;
-    overflow-y: hidden;
     padding-bottom: 2px;
-    padding-inline-end: 12px;
     box-sizing: border-box;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-    scrollbar-color: var(--r-line) transparent;
+    row-gap: 12px;
   }
-  .toolbar::-webkit-scrollbar { height: 6px; }
-  .toolbar::-webkit-scrollbar-thumb { background: var(--r-line); border-radius: 3px; }
   .toolbar > *:not(.toolbar-grow) { flex-shrink: 0; }
-  .toolbar-grow { flex: 1 1 8px; min-width: 8px; }
+  .toolbar-grow { flex: 1 1 12px; min-width: 12px; }
+
+  .btn-play {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .btn-play svg { width: 18px; height: 18px; display: block; }
+  .btn-play .spinner {
+    border-color: rgba(242, 241, 236, 0.35);
+    border-top-color: var(--r-on-accent);
+  }
 
   .r-select {
     height: 36px;
@@ -619,6 +634,11 @@ const STYLES = `
     outline: none;
   }
   .tag-search:focus { border-color: var(--r-line-focus); }
+  .tag-star-filter {
+    flex: 0 0 auto;
+    align-items: center;
+    max-width: 160px;
+  }
   .tag-bank {
     max-height: 112px;
     overflow-y: auto;
@@ -825,6 +845,77 @@ const STYLES = `
   .watch-link:hover { color: var(--r-accent); text-decoration: underline; text-underline-offset: 3px; }
   .key-points { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); }
 
+  .card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .star-btn {
+    background: var(--r-surface-hot);
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--r-text-faint);
+    flex-shrink: 0;
+  }
+  .star-btn:hover { color: var(--r-text); border-color: var(--r-text-faint); }
+  .star-btn.is-starred {
+    color: var(--r-accent-warm);
+    border-color: var(--r-sand);
+    background: var(--r-surface);
+  }
+  .card-note-label {
+    font-family: var(--r-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--r-text-faint);
+    margin-top: 10px;
+    margin-bottom: 4px;
+  }
+  .card-note {
+    width: 100%;
+    margin-top: 0;
+    min-height: 52px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: var(--r-font);
+    line-height: 1.45;
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    background: var(--r-surface-hot);
+    color: var(--r-text);
+    resize: vertical;
+    outline: none;
+  }
+  .card-note:focus { border-color: var(--r-line-focus); }
+  .purge-bar {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--r-line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .purge-bar input {
+    flex: 1;
+    min-width: 140px;
+    max-width: 280px;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    background: var(--r-surface-hot);
+    font-family: var(--r-font);
+  }
+
   .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--r-text-muted); }
   .empty-state p { font-size: 13px; margin-top: 8px; max-width: 38ch; margin-left: auto; margin-right: auto; line-height: 1.55; }
   .big-icon { display: none; }
@@ -892,7 +983,10 @@ async function runAgent({
   const errors = [];
   results.forEach((r, i) => {
     if (r.status === "fulfilled" && r.value?.videos) {
-      allVideos.push(...r.value.videos);
+      const cid = channels[i].id;
+      for (const vid of r.value.videos) {
+        allVideos.push({ ...vid, channelId: vid.channelId ?? cid });
+      }
     } else if (r.status === "rejected") {
       const msg = r.reason?.name === "AbortError" ? "cancelled" : r.reason?.message;
       errors.push(`${channels[i].name}: ${msg}`);
@@ -965,7 +1059,14 @@ Return ONLY a valid JSON array, no other text.`;
         const byVideoId = new Map(chunk.map((x) => [x.videoId, x]));
         for (const v of parsed) {
           const src = byVideoId.get(v.videoId);
-          const enriched = { ...v, description: src?.description ?? "" };
+          const enriched = {
+            ...v,
+            description: src?.description ?? "",
+            channelId: src?.channelId ?? null,
+            channel: v.channel || src?.author || v.channel,
+            starred: false,
+            userNote: "",
+          };
           processedVideos.push(enriched);
           onVideo(enriched);
         }
@@ -985,11 +1086,12 @@ async function sbFetch(resource, method = 'GET', data = null) {
     const res = await fetch(url);
     return res.ok ? res.json() : null;
   }
-  await fetch(url, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ resource, data }),
   });
+  return res.ok ? res.json().catch(() => ({})) : null;
 }
 
 export default function App() {
@@ -1001,6 +1103,7 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [statusType, setStatusType] = useState("running");
   const [videos, setVideos] = useState([]);
+  const videosRef = useRef([]);
   const [dbReady, setDbReady] = useState(false);
   
   // Sorting & Filtering
@@ -1018,6 +1121,14 @@ export default function App() {
   const digestAbortRef = useRef(null);
   /** Re-run YouTube search + videos.list for every item (higher quota; ignores skip list). */
   const [forceYoutubeRefresh, setForceYoutubeRefresh] = useState(false);
+  const [starredOnly, setStarredOnly] = useState(false);
+  const [purgeSecretInput, setPurgeSecretInput] = useState("");
+  const [purging, setPurging] = useState(false);
+  const noteTimersRef = useRef({});
+
+  useEffect(() => {
+    videosRef.current = videos;
+  }, [videos]);
 
   useEffect(() => {
     const ids = new Set(channels.map((c) => c.id));
@@ -1061,11 +1172,14 @@ export default function App() {
           videoId: r.video_id,
           title: r.title,
           channel: r.channel,
+          channelId: r.channel_id ?? null,
           publishedAt: r.published_at,
           tags: normalizeTags(r.tags),
           summary: r.summary,
           keyPoints: r.key_points,
           description: r.description ?? "",
+          starred: Boolean(r.starred),
+          userNote: r.user_note ?? "",
         }));
         setVideos(mapped);
       }
@@ -1084,11 +1198,111 @@ export default function App() {
   };
 
   const removeChannel = async (id) => {
-    const updated = channels.filter(ch => ch.id !== id);
+    const removed = channels.find((ch) => ch.id === id);
+    const updated = channels.filter((ch) => ch.id !== id);
     setChannels(updated);
+    setVideos((prev) =>
+      prev.filter((v) => {
+        if (v.channelId === id) return false;
+        if (removed && looselyMatchChannelNames(v.channel, removed.name)) return false;
+        return true;
+      })
+    );
     if (dbReady) {
-      await sbFetch('channels', 'POST', updated.map(c => ({ id: c.id, name: c.name })));
+      await sbFetch("channels", "POST", updated.map((c) => ({ id: c.id, name: c.name })));
+      if (removed) {
+        const qs = new URLSearchParams({
+          resource: "results_by_channel",
+          channelId: removed.id,
+          channel: removed.name,
+        });
+        await fetch(`/api/supabase?${qs}`, { method: "DELETE" });
+      }
     }
+  };
+
+  const handlePurgeAll = async () => {
+    if (!dbReady) {
+      setStatus("Database not connected.");
+      setStatusType("error");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Delete all channels and digest results from the database? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setPurging(true);
+    setStatus("Clearing database…");
+    setStatusType("running");
+    try {
+      const data = purgeSecretInput.trim()
+        ? { secret: purgeSecretInput.trim() }
+        : { confirmToken: "DELETE_ALL_DIGEST_DATA" };
+      const res = await fetch("/api/supabase?resource=purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: "purge", data }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.statusText);
+      setChannels([]);
+      setVideos([]);
+      setPurgeSecretInput("");
+      setTagFilter("All");
+      setStarredOnly(false);
+      setStatus("All data cleared.");
+      setStatusType("success");
+    } catch (e) {
+      setStatus(`Could not clear database: ${e.message}`);
+      setStatusType("error");
+    } finally {
+      setPurging(false);
+    }
+  };
+
+  const persistResultMeta = async (v, patch) => {
+    if (!dbReady) return;
+    const payload = {
+      video_id: v.videoId,
+      channel: v.channel,
+      ...patch,
+    };
+    if (v.channelId) payload.channel_id = v.channelId;
+    await fetch("/api/supabase?resource=result_meta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "result_meta", data: payload }),
+    });
+  };
+
+  const toggleStar = async (v) => {
+    const next = !v.starred;
+    setVideos((prev) =>
+      prev.map((p) =>
+        p.videoId === v.videoId && p.channel === v.channel ? { ...p, starred: next } : p
+      )
+    );
+    await persistResultMeta(v, { starred: next });
+  };
+
+  const scheduleNoteSave = (v, text) => {
+    const k = videoRowKey(v);
+    if (noteTimersRef.current[k]) clearTimeout(noteTimersRef.current[k]);
+    noteTimersRef.current[k] = setTimeout(() => {
+      void persistResultMeta({ ...v, userNote: text }, { user_note: text });
+    }, 600);
+  };
+
+  const onNoteChange = (v, text) => {
+    setVideos((prev) =>
+      prev.map((p) =>
+        p.videoId === v.videoId && p.channel === v.channel ? { ...p, userNote: text } : p
+      )
+    );
+    scheduleNoteSave({ ...v, userNote: text }, text);
   };
 
   const toggleDigestChannel = (id) => {
@@ -1174,11 +1388,15 @@ export default function App() {
         await sbFetch('channels', 'POST', channels.map(c => ({ id: c.id, name: c.name })));
       }
 
+      const selectedIds = new Set(selectedChannels.map((c) => c.id));
       const selectedNames = new Set(selectedChannels.map((c) => c.name));
       const existingVideoIds = [
         ...new Set(
           videos
-            .filter((v) => selectedNames.has(v.channel))
+            .filter((v) => {
+              if (v.channelId && selectedIds.has(v.channelId)) return true;
+              return selectedNames.has(v.channel);
+            })
             .map((v) => v.videoId)
             .filter(Boolean)
         ),
@@ -1193,9 +1411,13 @@ export default function App() {
         onStatus: (msg, type) => { setStatus(msg); setStatusType(type); },
         onVideo: (v) => {
           newVideos.push(v);
-          setVideos(prev => {
-            const exists = prev.find(p => p.videoId === v.videoId && p.channel === v.channel);
-            return exists ? prev : [...prev, v];
+          setVideos((prev) => {
+            const exists = prev.find(
+              (p) => p.videoId === v.videoId && p.channel === v.channel
+            );
+            const next = exists ? prev : [...prev, v];
+            videosRef.current = next;
+            return next;
           });
         },
       });
@@ -1213,18 +1435,26 @@ export default function App() {
       setRunning(false);
       digestAbortRef.current = null;
       if (dbReady && newVideos.length > 0) {
-        const rows = newVideos.map(v => ({
-          id: v.id,
-          video_id: v.videoId,
-          title: v.title,
-          channel: v.channel,
-          published_at: v.publishedAt,
-          tags: v.tags,
-          summary: v.summary,
-          key_points: v.keyPoints,
-          description: v.description ?? "",
-        }));
-        await sbFetch('results', 'POST', rows);
+        const rows = newVideos.map((v) => {
+          const existing = videosRef.current.find(
+            (p) => p.videoId === v.videoId && p.channel === v.channel
+          );
+          return {
+            id: v.id,
+            video_id: v.videoId,
+            title: v.title,
+            channel: v.channel,
+            channel_id: v.channelId ?? null,
+            published_at: v.publishedAt,
+            tags: v.tags,
+            summary: v.summary,
+            key_points: v.keyPoints,
+            description: v.description ?? "",
+            starred: existing?.starred ?? false,
+            user_note: existing?.userNote ?? null,
+          };
+        });
+        await sbFetch("results", "POST", rows);
       }
     }
   };
@@ -1274,6 +1504,9 @@ export default function App() {
       tf === "All" || tf === ""
         ? [...videos]
         : videos.filter((v) => videoHasTag(v, tf));
+    if (starredOnly) {
+      list = list.filter((v) => v.starred);
+    }
     if (visibleChannelNames !== null) {
       if (visibleChannelNames.size === 0) {
         list = [];
@@ -1299,7 +1532,7 @@ export default function App() {
       return 0;
     });
     return list;
-  }, [videos, tagFilter, visibleChannelNames, sortBy, channels, visibleChannelIds]);
+  }, [videos, tagFilter, visibleChannelNames, sortBy, channels, visibleChannelIds, starredOnly]);
 
   const exportJSON = useCallback(() => {
     const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: "application/json" });
@@ -1580,9 +1813,52 @@ export default function App() {
               />
             </button>
           </div>
+          <div className="purge-bar">
+            <input
+              type="password"
+              name="digest-purge-secret"
+              autoComplete="off"
+              placeholder="Optional purge secret (if configured)"
+              value={purgeSecretInput}
+              onChange={(e) => setPurgeSecretInput(e.target.value)}
+              aria-label="Optional secret for clearing all database data"
+            />
+            <button
+              type="button"
+              className="btn"
+              onClick={handlePurgeAll}
+              disabled={purging || !dbReady}
+            >
+              <PretextLines
+                as="span"
+                text={purging ? "Clearing…" : "Clear all data"}
+                font={PT.tableCell}
+                lineHeightPx={PT_LH.tableCell}
+                fixedWidth={120}
+                style={{ display: "inline-block" }}
+              />
+            </button>
+          </div>
         </section>
 
         <div className="toolbar" role="toolbar" aria-label="Digest filters and actions">
+          <button
+            type="button"
+            className="btn primary btn-play"
+            onClick={handleRun}
+            disabled={running || channels.length === 0 || digestChannelIds.size === 0}
+            aria-label={running ? "Running digest" : "Run digest"}
+            title={running ? "Running…" : "Run digest"}
+          >
+            {running ? (
+              <span className="spinner" aria-hidden />
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d="M8 5v14l11-7z" />
+              </svg>
+            )}
+          </button>
+
           <span className="r-label">
             <PretextLines
               as="span"
@@ -1625,22 +1901,6 @@ export default function App() {
               </select>
             </>
           )}
-
-          <button
-            type="button"
-            className="btn primary"
-            onClick={handleRun}
-            disabled={running || channels.length === 0 || digestChannelIds.size === 0}
-          >
-            <PretextLines
-              as="span"
-              text={running ? "Running…" : "Run digest"}
-              font={PT.runBtn}
-              lineHeightPx={PT_LH.runBtn}
-              fixedWidth={140}
-              style={{ display: "inline-block" }}
-            />
-          </button>
 
           <div className="toolbar-grow" />
 
@@ -1719,14 +1979,16 @@ export default function App() {
               onChange={(e) => setForceYoutubeRefresh(e.target.checked)}
               disabled={running}
             />
-            <PretextLines
-              as="span"
-              text="Full YouTube re-fetch"
-              font={PT.optLabel}
-              lineHeightPx={PT_LH.optLabel}
-              fixedWidth={220}
-              style={{ display: "inline-block", verticalAlign: "middle" }}
-            />
+            <span className="r-opt-text">
+              <PretextLines
+                as="span"
+                text="Full YouTube re-fetch (ignore skip list)"
+                font={PT.optLabel}
+                lineHeightPx={PT_LH.optLabel}
+                fixedWidth={320}
+                style={{ display: "inline-block", verticalAlign: "middle" }}
+              />
+            </span>
           </label>
         </div>
 
@@ -1765,6 +2027,23 @@ export default function App() {
                     style={{ display: "inline-block" }}
                   />
                 </span>
+                <label className="r-opt tag-star-filter">
+                  <input
+                    type="checkbox"
+                    checked={starredOnly}
+                    onChange={(e) => setStarredOnly(e.target.checked)}
+                  />
+                  <span className="r-opt-text">
+                    <PretextLines
+                      as="span"
+                      text="Starred only"
+                      font={PT.optLabel}
+                      lineHeightPx={PT_LH.optLabel}
+                      fixedWidth={100}
+                      style={{ display: "inline-block" }}
+                    />
+                  </span>
+                </label>
                 <input
                   className="tag-search"
                   type="search"
@@ -1871,6 +2150,17 @@ export default function App() {
                             style={{ display: "block" }}
                           />
                         </div>
+                        <div className="card-actions">
+                          <button
+                            type="button"
+                            className={`star-btn ${v.starred ? "is-starred" : ""}`}
+                            aria-pressed={Boolean(v.starred)}
+                            aria-label={v.starred ? "Remove star" : "Star this video"}
+                            onClick={() => toggleStar(v)}
+                          >
+                            ★
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div className="card-tags-scroll" aria-label="Tags">
@@ -1915,6 +2205,16 @@ export default function App() {
                         style={{ display: "block" }}
                       />
                     </p>
+
+                    <div className="card-note-label">Note</div>
+                    <textarea
+                      className="card-note"
+                      value={v.userNote ?? ""}
+                      onChange={(e) => onNoteChange(v, e.target.value)}
+                      placeholder="Private notes…"
+                      rows={2}
+                      aria-label={`Notes for ${v.title || "video"}`}
+                    />
 
                     {v.videoId && (
                       <div className="r-expand">

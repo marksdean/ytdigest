@@ -94,6 +94,7 @@ async function loadChannelVideos(channelId, since, apiKey, excludeIds) {
           videoId: vid,
           title,
           author: item.snippet?.channelTitle || 'Unknown Author',
+          channelId,
           publishedAt: publishedAt ? new Date(publishedAt).toISOString() : new Date().toISOString(),
           description: item.snippet?.description || '',
         });
@@ -141,6 +142,7 @@ async function loadChannelVideos(channelId, since, apiKey, excludeIds) {
         videoId: item.snippet?.resourceId?.videoId,
         title: item.snippet.title,
         author: item.snippet.videoOwnerChannelTitle || 'Unknown Author',
+        channelId,
         publishedAt: publishedAt ? new Date(publishedAt).toISOString() : new Date().toISOString(),
         description: item.snippet.description || '',
       });

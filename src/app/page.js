@@ -166,7 +166,7 @@ Return ONLY a valid JSON array, no other text.`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 3000,
+        max_tokens: 12000,
         system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
       }),

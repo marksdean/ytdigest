@@ -20,9 +20,10 @@ A production-ready Next.js application that autonomously monitors specific YouTu
    ```
 
 2. **Environment Configuration**
-   Create a `.env.local` file in the root directory and configure your Anthropic API Key securely:
+   Create a `.env.local` file in the root directory and configure your API Keys securely:
    ```env
    ANTHROPIC_API_KEY=sk-ant-your-key-here
+   YOUTUBE_API_KEY=your-youtube-v3-api-key
    ```
 
 3. **Launch the Architecture**

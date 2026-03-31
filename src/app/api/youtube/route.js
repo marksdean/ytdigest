@@ -25,8 +25,8 @@ export async function GET(req) {
         return NextResponse.json({ videos: [] });
     }
 
-    // Get the latest 3 videos per channel to prevent overwhelming the LLM payload
-    const entries = result.feed.entry.slice(0, 3);
+    // Get up to 15 recent videos per channel
+    const entries = result.feed.entry.slice(0, 15);
     const authorName = result.feed.author?.[0]?.name?.[0] || 'Unknown Author';
 
     const videos = entries.map(entry => {

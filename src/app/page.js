@@ -103,7 +103,7 @@ const INITIAL_CHANNELS = [
   { id: "UCLn-p0U5rD5q0EemikmX6_w", name: "The Keys Coach" }
 ];
 
-async function runAgent({ channels, onStatus, onVideo }) {
+async function runAgent({ channels, since, onStatus, onVideo }) {
   onStatus("Fetching real videos from YouTube RSS...", "running");
 
   let allVideos = [];
@@ -125,7 +125,24 @@ async function runAgent({ channels, onStatus, onVideo }) {
     throw new Error("Could not fetch any videos from the provided channels. Ensure IDs are correct.");
   }
 
-  allVideos = allVideos.slice(0, 12);
+  const now = new Date();
+  allVideos = allVideos.filter(v => {
+    if (since === "All time") return true;
+    const pubDate = new Date(v.publishedAt);
+    const diffDays = (now - pubDate) / (1000 * 60 * 60 * 24);
+    if (since === "24 hours") return diffDays <= 1;
+    if (since === "3 days") return diffDays <= 3;
+    if (since === "7 days") return diffDays <= 7;
+    if (since === "1 month") return diffDays <= 30;
+    if (since === "1 year") return diffDays <= 365;
+    return true;
+  });
+
+  if (allVideos.length === 0) {
+    throw new Error(`No videos found matching the "${since}" timeframe.`);
+  }
+
+  allVideos = allVideos.slice(0, 25);
 
   const videoContext = allVideos.map((v, i) => 
     `[Video ${i + 1}] ID: ${v.videoId} | Channel: ${v.author} | Title: ${v.title} | Published: ${v.publishedAt}\nDescription: ${v.description.substring(0, 350)}...`
@@ -196,6 +213,7 @@ export default function App() {
   const [channels, setChannels] = useState(INITIAL_CHANNELS);
   const [newName, setNewName] = useState("");
   const [newId, setNewId] = useState("");
+  const [since, setSince] = useState("1 month");
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState(null);
   const [statusType, setStatusType] = useState("running");
@@ -219,6 +237,7 @@ export default function App() {
     try {
       await runAgent({
         channels,
+        since,
         onStatus: (msg, type) => { setStatus(msg); setStatusType(type); },
         onVideo: (v) => setVideos(prev => [...prev, v]),
       });
@@ -261,7 +280,18 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+          <div className="section-label" style={{ margin: 0, whiteSpace: "nowrap" }}>Timeframe</div>
+          <select value={since} onChange={e => setSince(e.target.value)}
+            style={{ height: 36, padding: "0 10px", background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: "var(--border-radius-md)", fontSize: 13, color: "var(--color-text-primary)", outline: "none" }}>
+            <option>24 hours</option>
+            <option>3 days</option>
+            <option>7 days</option>
+            <option>1 month</option>
+            <option>1 year</option>
+            <option>All time</option>
+          </select>
+          <div style={{ flex: 1 }} />
           <button
             className="btn primary"
             onClick={handleRun}

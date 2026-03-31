@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { PretextLines } from "@/components/PretextLines";
+import { PT, PT_LH } from "@/lib/pretextFonts";
 
 /** URLs from video description (full text from videos.list — search snippets are truncated). */
 function extractLinksFromText(text) {
@@ -186,16 +188,27 @@ const STYLES = `
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
-    table-layout: fixed;
+    table-layout: auto;
   }
   .channel-table thead th {
     vertical-align: bottom;
-    padding: 0 10px 12px 0;
+    padding: 0 0 10px 0;
     font-weight: 400;
   }
   .ch-th-cb {
-    width: 76px;
+    width: 1%;
     text-align: center;
+    vertical-align: bottom;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .ch-th-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: 104px;
+    margin: 0 auto;
   }
   .ch-th-title {
     display: block;
@@ -205,26 +218,36 @@ const STYLES = `
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--r-text);
-    margin-bottom: 2px;
+    text-align: center;
+    line-height: 1.2;
   }
   .ch-th-hint {
     display: block;
     font-size: 9px;
     color: var(--r-text-muted);
     line-height: 1.35;
-    margin-bottom: 8px;
-    max-width: 84px;
-    margin-left: auto;
-    margin-right: auto;
+    text-align: center;
   }
   .ch-th-bulk {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 8px;
+    width: 100%;
+  }
+  .ch-th-channel,
+  .ch-th-id {
+    text-align: left;
+    vertical-align: bottom;
+    padding-right: 12px;
+  }
+  .ch-th-remove {
+    width: 1%;
+    padding: 0;
   }
   .channel-table tbody td {
-    padding: 10px 10px 10px 0;
+    padding: 10px 12px 10px 0;
     border-top: 1px solid var(--r-line);
     vertical-align: middle;
   }
@@ -233,12 +256,11 @@ const STYLES = `
   }
   .ch-td-cb {
     text-align: center;
-    width: 76px;
-  }
-  .ch-td-line {
-    width: 3px;
-    padding-left: 0 !important;
-    padding-right: 4px !important;
+    width: 1%;
+    white-space: nowrap;
+    vertical-align: middle;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 
   .btn-text {
@@ -265,9 +287,9 @@ const STYLES = `
     cursor: pointer;
     accent-color: var(--r-text);
   }
-  .channel-line { width: 3px; height: 14px; background: var(--r-text); flex-shrink: 0; }
-  .channel-name { font-weight: 500; color: var(--r-text); flex: 1; }
-  .channel-id { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); }
+  .channel-name { font-weight: 500; color: var(--r-text); text-align: left; }
+  .channel-id { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); text-align: left; word-break: break-all; }
+  .ch-td-remove { width: 1%; white-space: nowrap; text-align: right; vertical-align: middle; padding-right: 0 !important; padding-left: 8px !important; }
   .remove-btn {
     background: none;
     border: none;
@@ -515,20 +537,8 @@ const STYLES = `
     height: auto;
     aspect-ratio: 16/9;
   }
-  .video-card--grid .card-title {
-    font-size: 13px;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .video-card--grid .summary-text {
-    font-size: 11px;
-    -webkit-line-clamp: 4;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
+  .video-card--grid .card-title { font-size: 13px; }
+  .video-card--grid .summary-text { font-size: 11px; }
 
   .card-top { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
   .thumb {
@@ -1146,14 +1156,46 @@ export default function App() {
       <style>{STYLES}</style>
       <div className="root">
         <header className="header">
-          <p className="r-label" style={{ marginBottom: 10 }}>YouTube digest</p>
-          <h1>Digest agent</h1>
-          <p>Fetches channel uploads, summarizes them, and tags entries for filtering. Built for clarity and long lists.</p>
+          <p className="r-label" style={{ marginBottom: 10 }}>
+            <PretextLines
+              as="span"
+              text="YouTube digest"
+              font={PT.headerEyebrow}
+              lineHeightPx={PT_LH.headerEyebrow}
+              fixedWidth={160}
+              style={{ display: "inline-block" }}
+            />
+          </p>
+          <h1>
+            <PretextLines
+              as="span"
+              text="Digest agent"
+              font={PT.headerTitle}
+              lineHeightPx={PT_LH.headerTitle}
+              style={{ display: "block" }}
+            />
+          </h1>
+          <p>
+            <PretextLines
+              as="span"
+              text="Fetches channel uploads, summarizes them, and tags entries for filtering. Built for clarity and long lists."
+              font={PT.headerBody}
+              lineHeightPx={PT_LH.headerBody}
+              style={{ display: "block" }}
+            />
+          </p>
         </header>
 
         <div className="panel">
           <p className="r-label" style={{ marginBottom: 12 }}>
-            Channels
+            <PretextLines
+              as="span"
+              text="Channels"
+              font={PT.panelLabel}
+              lineHeightPx={PT_LH.panelLabel}
+              fixedWidth={120}
+              style={{ display: "inline-block" }}
+            />
           </p>
           {channels.length > 0 && (
             <div className="channel-table-wrap">
@@ -1161,53 +1203,134 @@ export default function App() {
                 <thead>
                   <tr>
                     <th scope="col" className="ch-th-cb">
-                      <span className="ch-th-title">Digest</span>
-                      <span className="ch-th-hint">Include in next run</span>
-                      <div className="ch-th-bulk">
-                        <button
-                          type="button"
-                          className={`btn-text ${digestAllOn ? "is-on" : ""}`}
-                          onClick={selectAllDigest}
-                        >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn-text ${digestNoneOn ? "is-on" : ""}`}
-                          onClick={clearDigestSelection}
-                        >
-                          None
-                        </button>
+                      <div className="ch-th-stack">
+                        <span className="ch-th-title">
+                          <PretextLines
+                            as="span"
+                            text="Digest"
+                            font={PT.thTitle}
+                            lineHeightPx={PT_LH.thTitle}
+                            fixedWidth={96}
+                            style={{ display: "inline-block" }}
+                          />
+                        </span>
+                        <span className="ch-th-hint">
+                          <PretextLines
+                            as="span"
+                            text="Include in next run"
+                            font={PT.thHint}
+                            lineHeightPx={PT_LH.thHint}
+                            fixedWidth={96}
+                            style={{ display: "inline-block" }}
+                          />
+                        </span>
+                        <div className="ch-th-bulk">
+                          <button
+                            type="button"
+                            className={`btn-text ${digestAllOn ? "is-on" : ""}`}
+                            onClick={selectAllDigest}
+                          >
+                            <PretextLines
+                              as="span"
+                              text="All"
+                              font={PT.btnText}
+                              lineHeightPx={PT_LH.btnText}
+                              fixedWidth={40}
+                              style={{ display: "inline-block" }}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn-text ${digestNoneOn ? "is-on" : ""}`}
+                            onClick={clearDigestSelection}
+                          >
+                            <PretextLines
+                              as="span"
+                              text="None"
+                              font={PT.btnText}
+                              lineHeightPx={PT_LH.btnText}
+                              fixedWidth={44}
+                              style={{ display: "inline-block" }}
+                            />
+                          </button>
+                        </div>
                       </div>
                     </th>
                     <th scope="col" className="ch-th-cb">
-                      <span className="ch-th-title">View</span>
-                      <span className="ch-th-hint">Show in results</span>
-                      <div className="ch-th-bulk">
-                        <button
-                          type="button"
-                          className={`btn-text ${viewAllOn ? "is-on" : ""}`}
-                          onClick={selectAllVisible}
-                        >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          className={`btn-text ${viewNoneOn ? "is-on" : ""}`}
-                          onClick={clearVisibleSelection}
-                        >
-                          None
-                        </button>
+                      <div className="ch-th-stack">
+                        <span className="ch-th-title">
+                          <PretextLines
+                            as="span"
+                            text="View"
+                            font={PT.thTitle}
+                            lineHeightPx={PT_LH.thTitle}
+                            fixedWidth={96}
+                            style={{ display: "inline-block" }}
+                          />
+                        </span>
+                        <span className="ch-th-hint">
+                          <PretextLines
+                            as="span"
+                            text="Show in results"
+                            font={PT.thHint}
+                            lineHeightPx={PT_LH.thHint}
+                            fixedWidth={96}
+                            style={{ display: "inline-block" }}
+                          />
+                        </span>
+                        <div className="ch-th-bulk">
+                          <button
+                            type="button"
+                            className={`btn-text ${viewAllOn ? "is-on" : ""}`}
+                            onClick={selectAllVisible}
+                          >
+                            <PretextLines
+                              as="span"
+                              text="All"
+                              font={PT.btnText}
+                              lineHeightPx={PT_LH.btnText}
+                              fixedWidth={40}
+                              style={{ display: "inline-block" }}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn-text ${viewNoneOn ? "is-on" : ""}`}
+                            onClick={clearVisibleSelection}
+                          >
+                            <PretextLines
+                              as="span"
+                              text="None"
+                              font={PT.btnText}
+                              lineHeightPx={PT_LH.btnText}
+                              fixedWidth={44}
+                              style={{ display: "inline-block" }}
+                            />
+                          </button>
+                        </div>
                       </div>
                     </th>
-                    <th scope="col" aria-hidden className="ch-td-line" />
                     <th scope="col" className="ch-th-channel r-label">
-                      Channel
+                      <PretextLines
+                        as="span"
+                        text="Channel"
+                        font={PT.toolbarLabel}
+                        lineHeightPx={PT_LH.toolbarLabel}
+                        fixedWidth={80}
+                        style={{ display: "inline-block" }}
+                      />
                     </th>
-                    <th scope="col" className="r-label">
-                      ID
+                    <th scope="col" className="ch-th-id r-label">
+                      <PretextLines
+                        as="span"
+                        text="ID"
+                        font={PT.toolbarLabel}
+                        lineHeightPx={PT_LH.toolbarLabel}
+                        fixedWidth={32}
+                        style={{ display: "inline-block" }}
+                      />
                     </th>
-                    <th scope="col" aria-label="Remove" />
+                    <th scope="col" aria-label="Remove" className="ch-th-remove" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1231,12 +1354,13 @@ export default function App() {
                           aria-label={`Show results for ${ch.name}`}
                         />
                       </td>
-                      <td className="ch-td-line">
-                        <div className="channel-line" aria-hidden />
+                      <td className="channel-name">
+                        <PretextLines text={ch.name} font={PT.tableCell} lineHeightPx={PT_LH.tableCell} />
                       </td>
-                      <td className="channel-name">{ch.name}</td>
-                      <td className="channel-id">{ch.id}</td>
-                      <td>
+                      <td className="channel-id">
+                        <PretextLines text={ch.id} font={PT.tableMono} lineHeightPx={PT_LH.tableMono} />
+                      </td>
+                      <td className="ch-td-remove">
                         <button
                           type="button"
                           className="remove-btn"
@@ -1256,13 +1380,29 @@ export default function App() {
             <input placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
             <input placeholder="Channel ID (UC…)" value={newId} onChange={(e) => setNewId(e.target.value)} />
             <button type="button" className="btn" onClick={addChannel}>
-              Add
+              <PretextLines
+                as="span"
+                text="Add"
+                font={PT.tableCell}
+                lineHeightPx={PT_LH.tableCell}
+                fixedWidth={48}
+                style={{ display: "inline-block" }}
+              />
             </button>
           </div>
         </div>
 
         <div className="toolbar">
-          <span className="r-label">Timeframe</span>
+          <span className="r-label">
+            <PretextLines
+              as="span"
+              text="Timeframe"
+              font={PT.toolbarLabel}
+              lineHeightPx={PT_LH.toolbarLabel}
+              fixedWidth={96}
+              style={{ display: "inline-block" }}
+            />
+          </span>
           <select className="r-select" value={since} onChange={(e) => setSince(e.target.value)}>
             <option>24 hours</option>
             <option>3 days</option>
@@ -1277,7 +1417,16 @@ export default function App() {
 
           {videos.length > 0 && (
             <>
-              <span className="r-label">Sort</span>
+              <span className="r-label">
+                <PretextLines
+                  as="span"
+                  text="Sort"
+                  font={PT.toolbarLabel}
+                  lineHeightPx={PT_LH.toolbarLabel}
+                  fixedWidth={48}
+                  style={{ display: "inline-block" }}
+                />
+              </span>
               <select className="r-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                 <option>Date (Newest)</option>
                 <option>Date (Oldest)</option>
@@ -1291,28 +1440,65 @@ export default function App() {
 
           {videos.length > 0 && (
             <>
-              <span className="r-label">Layout</span>
+              <span className="r-label">
+                <PretextLines
+                  as="span"
+                  text="Layout"
+                  font={PT.toolbarLabel}
+                  lineHeightPx={PT_LH.toolbarLabel}
+                  fixedWidth={56}
+                  style={{ display: "inline-block" }}
+                />
+              </span>
               <div className="seg" role="group" aria-label="Result layout">
                 <button
                   type="button"
                   className={viewMode === "list" ? "is-on" : ""}
                   onClick={() => setViewMode("list")}
                 >
-                  List
+                  <PretextLines
+                    as="span"
+                    text="List"
+                    font={PT.btnText}
+                    lineHeightPx={PT_LH.btnText}
+                    fixedWidth={40}
+                    style={{ display: "inline-block" }}
+                  />
                 </button>
                 <button
                   type="button"
                   className={viewMode === "grid" ? "is-on" : ""}
                   onClick={() => setViewMode("grid")}
                 >
-                  Grid
+                  <PretextLines
+                    as="span"
+                    text="Grid"
+                    font={PT.btnText}
+                    lineHeightPx={PT_LH.btnText}
+                    fixedWidth={44}
+                    style={{ display: "inline-block" }}
+                  />
                 </button>
               </div>
               <button type="button" className="btn" onClick={exportJSON}>
-                Export JSON
+                <PretextLines
+                  as="span"
+                  text="Export JSON"
+                  font={PT.tableCell}
+                  lineHeightPx={PT_LH.tableCell}
+                  fixedWidth={120}
+                  style={{ display: "inline-block" }}
+                />
               </button>
               <button type="button" className="btn" onClick={exportMarkdown}>
-                Export MD
+                <PretextLines
+                  as="span"
+                  text="Export MD"
+                  font={PT.tableCell}
+                  lineHeightPx={PT_LH.tableCell}
+                  fixedWidth={100}
+                  style={{ display: "inline-block" }}
+                />
               </button>
             </>
           )}
@@ -1327,7 +1513,14 @@ export default function App() {
               onChange={(e) => setForceYoutubeRefresh(e.target.checked)}
               disabled={running}
             />
-            Full YouTube re-fetch
+            <PretextLines
+              as="span"
+              text="Full YouTube re-fetch"
+              font={PT.optLabel}
+              lineHeightPx={PT_LH.optLabel}
+              fixedWidth={220}
+              style={{ display: "inline-block", verticalAlign: "middle" }}
+            />
           </label>
 
           <button
@@ -1336,17 +1529,33 @@ export default function App() {
             onClick={handleRun}
             disabled={running || channels.length === 0 || digestChannelIds.size === 0}
           >
-            {running ? "Running…" : "Run digest"}
+            <PretextLines
+              as="span"
+              text={running ? "Running…" : "Run digest"}
+              font={PT.runBtn}
+              lineHeightPx={PT_LH.runBtn}
+              fixedWidth={140}
+              style={{ display: "inline-block" }}
+            />
           </button>
         </div>
 
         {status && (
           <div className={`status-bar ${statusType}`}>
             {statusType === "running" && <div className="spinner" />}
-            <span className="status-msg">{status}</span>
+            <span className="status-msg">
+              <PretextLines text={status || ""} font={PT.status} lineHeightPx={PT_LH.status} />
+            </span>
             {running && (
               <button type="button" className="btn" onClick={handleCancelDigest}>
-                Cancel
+                <PretextLines
+                  as="span"
+                  text="Cancel"
+                  font={PT.tableCell}
+                  lineHeightPx={PT_LH.tableCell}
+                  fixedWidth={64}
+                  style={{ display: "inline-block" }}
+                />
               </button>
             )}
           </div>
@@ -1356,7 +1565,16 @@ export default function App() {
           <>
             <div className="tag-panel">
               <div className="tag-panel-top">
-                <span className="r-label">Tags</span>
+                <span className="r-label">
+                  <PretextLines
+                    as="span"
+                    text="Tags"
+                    font={PT.toolbarLabel}
+                    lineHeightPx={PT_LH.toolbarLabel}
+                    fixedWidth={48}
+                    style={{ display: "inline-block" }}
+                  />
+                </span>
                 <input
                   className="tag-search"
                   type="search"
@@ -1366,7 +1584,14 @@ export default function App() {
                   aria-label="Filter tag list"
                 />
                 <span className="r-label" style={{ marginLeft: "auto" }}>
-                  {filtered.length} shown
+                  <PretextLines
+                    as="span"
+                    text={`${filtered.length} shown`}
+                    font={PT.shownCount}
+                    lineHeightPx={PT_LH.shownCount}
+                    fixedWidth={120}
+                    style={{ display: "inline-block" }}
+                  />
                 </span>
               </div>
               <div className="tag-bank">
@@ -1377,12 +1602,18 @@ export default function App() {
                     className={`filter-chip ${tagFilter.trim() === tag.trim() ? "active" : ""}`}
                     onClick={() => setTagFilter(tag.trim())}
                   >
-                    {tag}
-                    {tag !== "All" && (
-                      <span style={{ marginLeft: 6, opacity: 0.75 }}>
-                        ({videos.filter((v) => videoHasTag(v, tag.trim())).length})
-                      </span>
-                    )}
+                    <PretextLines
+                      as="span"
+                      text={
+                        tag !== "All"
+                          ? `${tag} (${videos.filter((v) => videoHasTag(v, tag.trim())).length})`
+                          : tag
+                      }
+                      font={PT.filterChip}
+                      lineHeightPx={PT_LH.filterChip}
+                      fixedWidth={280}
+                      style={{ display: "inline-block", textAlign: "left" }}
+                    />
                   </button>
                 ))}
               </div>
@@ -1416,47 +1647,123 @@ export default function App() {
                         />
                       ) : (
                         <div className="thumb" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          —
+                          <PretextLines
+                            as="span"
+                            text="—"
+                            font={PT.tableCell}
+                            lineHeightPx={PT_LH.tableCell}
+                            fixedWidth={24}
+                            style={{ display: "inline-block" }}
+                          />
                         </div>
                       )}
                       <div className="card-meta">
-                        <div className="card-title">{v.title}</div>
-                        <div className="card-channel">{v.channel}</div>
+                        <div className="card-title">
+                          <PretextLines
+                            as="span"
+                            text={v.title}
+                            font={isGrid ? PT.cardTitleGrid : PT.cardTitleList}
+                            lineHeightPx={
+                              isGrid ? PT_LH.cardTitleGrid : PT_LH.cardTitleList
+                            }
+                            maxLines={isGrid ? 3 : undefined}
+                            style={{ display: "block" }}
+                          />
+                        </div>
+                        <div className="card-channel">
+                          <PretextLines
+                            as="span"
+                            text={v.channel}
+                            font={PT.cardChannel}
+                            lineHeightPx={PT_LH.cardChannel}
+                            maxLines={2}
+                            style={{ display: "block" }}
+                          />
+                        </div>
                       </div>
                     </div>
                     <div className="card-tags-scroll" aria-label="Tags">
                       {normalizeTags(v.tags).map((t) => (
                         <span key={t} className="badge">
-                          {t}
+                          <PretextLines
+                            as="span"
+                            text={t}
+                            font={PT.badge}
+                            lineHeightPx={PT_LH.badge}
+                            fixedWidth={240}
+                            style={{ display: "inline-block" }}
+                          />
                         </span>
                       ))}
                       {v.publishedAt && (
                         <span className="badge date">
-                          {new Date(v.publishedAt).toLocaleDateString(undefined, {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
+                          <PretextLines
+                            as="span"
+                            text={new Date(v.publishedAt).toLocaleDateString(undefined, {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                            font={PT.badgeDate}
+                            lineHeightPx={PT_LH.badgeDate}
+                            fixedWidth={120}
+                            style={{ display: "inline-block" }}
+                          />
                         </span>
                       )}
                     </div>
-                    <p className="summary-text">{v.summary}</p>
+                    <p className="summary-text">
+                      <PretextLines
+                        as="span"
+                        text={v.summary || ""}
+                        font={isGrid ? PT.summaryGrid : PT.summaryList}
+                        lineHeightPx={
+                          isGrid ? PT_LH.summaryGrid : PT_LH.summaryList
+                        }
+                        maxLines={isGrid ? 4 : undefined}
+                        style={{ display: "block" }}
+                      />
+                    </p>
 
                     {v.videoId && (
                       <div className="r-expand">
                         <button type="button" className="r-expand-btn" onClick={() => toggleDesc(v)}>
                           <span className={`r-chevron ${openDesc[v.id] ? "open" : ""}`}>›</span>
-                          Original description
+                          <PretextLines
+                            as="span"
+                            text="Original description"
+                            font={PT.expandBtn}
+                            lineHeightPx={PT_LH.expandBtn}
+                            fixedWidth={200}
+                            style={{ display: "inline-block" }}
+                          />
                         </button>
                         {openDesc[v.id] && loadingDescId === v.id && !mergedDesc && (
-                          <div className="r-expand-body">Loading…</div>
+                          <div className="r-expand-body">
+                            <PretextLines
+                              text="Loading…"
+                              font={PT.expandBody}
+                              lineHeightPx={PT_LH.expandBody}
+                            />
+                          </div>
                         )}
                         {openDesc[v.id] && mergedDesc && (
-                          <div className="r-expand-body">{mergedDesc}</div>
+                          <div className="r-expand-body">
+                            <PretextLines
+                              text={mergedDesc}
+                              font={PT.expandBody}
+                              lineHeightPx={PT_LH.expandBody}
+                              whiteSpace="pre-wrap"
+                            />
+                          </div>
                         )}
                         {openDesc[v.id] && !mergedDesc && loadingDescId !== v.id && (
                           <div className="r-expand-body" style={{ color: "var(--r-text-faint)" }}>
-                            No description available.
+                            <PretextLines
+                              text="No description available."
+                              font={PT.expandBody}
+                              lineHeightPx={PT_LH.expandBody}
+                            />
                           </div>
                         )}
                       </div>
@@ -1466,26 +1773,57 @@ export default function App() {
                       <div className="r-expand">
                         <button type="button" className="r-expand-btn" onClick={() => toggleLinks(v)}>
                           <span className={`r-chevron ${openLinks[v.id] ? "open" : ""}`}>›</span>
-                          Links & downloads ({extraLinks.length})
+                          <PretextLines
+                            as="span"
+                            text={`Links & downloads (${extraLinks.length})`}
+                            font={PT.expandBtn}
+                            lineHeightPx={PT_LH.expandBtn}
+                            fixedWidth={260}
+                            style={{ display: "inline-block" }}
+                          />
                         </button>
                         {openLinks[v.id] && (
                           <div className="r-expand-body">
                             {extraLinks.length === 0 ? (
                               <p style={{ color: "var(--r-text-faint)", fontSize: 12 }}>
-                                {mergedDesc
-                                  ? "No URLs found in the video description."
-                                  : loadingDescId === v.id
-                                    ? "Loading description…"
-                                    : "Open to load the full description from YouTube, then links appear here."}
+                                <PretextLines
+                                  as="span"
+                                  text={
+                                    mergedDesc
+                                      ? "No URLs found in the video description."
+                                      : loadingDescId === v.id
+                                        ? "Loading description…"
+                                        : "Open to load the full description from YouTube, then links appear here."
+                                  }
+                                  font={PT.expandBody}
+                                  lineHeightPx={PT_LH.expandBody}
+                                  fixedWidth={400}
+                                  style={{ display: "inline-block" }}
+                                />
                               </p>
                             ) : (
                               <ul className="link-list">
                                 {extraLinks.map((l) => (
                                   <li key={l.url}>
-                                    <div className="link-kind">{l.kind}</div>
+                                    <div className="link-kind">
+                                      <PretextLines
+                                        as="span"
+                                        text={l.kind}
+                                        font={PT.linkKind}
+                                        lineHeightPx={PT_LH.linkKind}
+                                        fixedWidth={120}
+                                        style={{ display: "inline-block" }}
+                                      />
+                                    </div>
                                     <a href={l.url} target="_blank" rel="noopener noreferrer">
-                                      {l.host}
-                                      {l.kind === "pdf" ? " · PDF" : ""}
+                                      <PretextLines
+                                        as="span"
+                                        text={`${l.host}${l.kind === "pdf" ? " · PDF" : ""}`}
+                                        font={PT.linkLine}
+                                        lineHeightPx={PT_LH.linkLine}
+                                        fixedWidth={400}
+                                        style={{ display: "inline-block" }}
+                                      />
                                     </a>
                                   </li>
                                 ))}
@@ -1503,10 +1841,26 @@ export default function App() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Open on YouTube
+                        <PretextLines
+                          as="span"
+                          text="Open on YouTube"
+                          font={PT.watchLink}
+                          lineHeightPx={PT_LH.watchLink}
+                          fixedWidth={200}
+                          style={{ display: "inline-block" }}
+                        />
                       </a>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span className="key-points">{v.keyPoints} key points</span>
+                        <span className="key-points">
+                          <PretextLines
+                            as="span"
+                            text={`${v.keyPoints ?? 0} key points`}
+                            font={PT.keyPoints}
+                            lineHeightPx={PT_LH.keyPoints}
+                            fixedWidth={160}
+                            style={{ display: "inline-block" }}
+                          />
+                        </span>
                         <button
                           type="button"
                           onClick={() => deleteResult(v.videoId, v.channel)}
@@ -1527,8 +1881,25 @@ export default function App() {
 
         {!running && videos.length === 0 && !status && (
           <div className="empty-state">
-            <div className="big-icon">□</div>
-            <p>Add channels and run the digest. Results stay compact in grid view or scroll in list view.</p>
+            <div className="big-icon">
+              <PretextLines
+                as="span"
+                text="□"
+                font={PT.emptyState}
+                lineHeightPx={PT_LH.emptyState}
+                fixedWidth={48}
+                style={{ display: "inline-block" }}
+              />
+            </div>
+            <p>
+              <PretextLines
+                as="span"
+                text="Add channels and run the digest. Results stay compact in grid view or scroll in list view."
+                font={PT.emptyState}
+                lineHeightPx={PT_LH.emptyState}
+                style={{ display: "block" }}
+              />
+            </p>
           </div>
         )}
       </div>

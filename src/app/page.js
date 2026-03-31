@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
-/** URLs from description / summary: PDFs, external pages, cloud links */
+/** URLs from video description (full text from videos.list — search snippets are truncated). */
 function extractLinksFromText(text) {
   if (!text || typeof text !== "string") return [];
   const seen = new Set();
   const out = [];
-  const re = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    let url = m[0].replace(/[.,;:)]+$/, "");
+
+  const pushNormalized = (raw) => {
+    let url = raw.replace(/[.,;:)]+$/, "").replace(/\]+$/,"");
     if (url.startsWith("www.")) url = `https://${url}`;
     try {
       const u = new URL(url);
-      if (seen.has(u.href)) continue;
+      if (seen.has(u.href)) return;
       seen.add(u.href);
       const host = u.hostname.replace(/^www\./, "");
       const path = u.pathname.toLowerCase();
@@ -26,8 +25,68 @@ function extractLinksFromText(text) {
     } catch {
       /* ignore */
     }
+  };
+
+  const md = /\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi;
+  let mm;
+  while ((mm = md.exec(text)) !== null) {
+    pushNormalized(mm[2]);
   }
+
+  const re = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    pushNormalized(m[0]);
+  }
+
   return out;
+}
+
+/**
+ * Supabase/Postgres may return `tags` as a JSON array, a stringified JSON array, or (if mis-typed) a plain string.
+ * Never use String.prototype.includes on raw `tags` — it does substring matching on the whole blob and breaks filters
+ * (e.g. "Jazz Piano" matches "Advanced Jazz Piano" and unrelated rows).
+ */
+function normalizeTags(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return [...new Set(raw.map((t) => String(t).trim()).filter(Boolean))];
+  }
+  if (typeof raw === "object") {
+    return [
+      ...new Set(
+        Object.values(raw)
+          .map((t) => String(t).trim())
+          .filter(Boolean)
+      ),
+    ];
+  }
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (s.startsWith("[")) {
+      try {
+        const p = JSON.parse(s);
+        if (Array.isArray(p)) {
+          return [...new Set(p.map((x) => String(x).trim()).filter(Boolean))];
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    return [
+      ...new Set(
+        s
+          .split(/[,\n]/)
+          .map((t) => t.trim())
+          .filter(Boolean)
+      ),
+    ];
+  }
+  return [];
+}
+
+function videoHasTag(video, tag) {
+  return normalizeTags(video.tags).includes(tag);
 }
 
 const STYLES = `
@@ -89,15 +148,50 @@ const STYLES = `
     margin-bottom: 1rem;
   }
 
-  .channel-row {
+  .channel-panel-head {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .channel-digest-actions,
+  .channel-view-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .btn-text {
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-family: var(--r-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--r-text-muted);
+    cursor: pointer;
+  }
+  .btn-text:hover { color: var(--r-text); }
+
+  .channel-row {
+    display: grid;
+    grid-template-columns: 18px 18px 3px minmax(0, 1fr) auto auto;
+    gap: 10px 12px;
+    align-items: center;
     padding: 10px 0;
     border-bottom: 1px solid var(--r-line);
     font-size: 13px;
   }
   .channel-row:last-child { border-bottom: none; }
+  .ch-cb {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--r-text);
+  }
   .channel-line { width: 3px; height: 14px; background: var(--r-text); flex-shrink: 0; }
   .channel-name { font-weight: 500; color: var(--r-text); flex: 1; }
   .channel-id { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); }
@@ -149,6 +243,27 @@ const STYLES = `
   }
   .btn.primary:hover { opacity: 0.92; }
   .btn.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .r-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-family: var(--r-mono);
+    letter-spacing: 0.02em;
+    color: var(--r-text-muted);
+    cursor: pointer;
+    user-select: none;
+    max-width: 220px;
+  }
+  .r-opt input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    flex-shrink: 0;
+    accent-color: var(--r-text);
+    cursor: pointer;
+  }
 
   .toolbar {
     display: flex;
@@ -208,6 +323,7 @@ const STYLES = `
     margin-bottom: 1rem;
     background: var(--r-surface);
   }
+  .status-bar .status-msg { flex: 1; min-width: 0; }
   .status-bar.running { border-color: var(--r-text-faint); }
   .status-bar.error { border-color: var(--r-text); }
   .status-bar.success { border-color: var(--r-line-focus); }
@@ -464,32 +580,75 @@ const STYLES = `
   .big-icon { font-size: 28px; margin-bottom: 6px; opacity: 0.4; }
 `;
 
-async function runAgent({ channels, since, onStatus, onVideo }) {
-  onStatus(`Fetching videos from ${channels.length} channel(s) in parallel...`, "running");
+function abortIfNeeded(signal) {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+}
 
-  // Fetch all channels in parallel to avoid Vercel timeout
+async function runAgent({
+  channels,
+  since,
+  onStatus,
+  onVideo,
+  signal,
+  existingVideoIds = [],
+  forceRefresh = false,
+}) {
+  abortIfNeeded(signal);
+  const excludePayload =
+    forceRefresh || !existingVideoIds.length
+      ? { forceRefresh: Boolean(forceRefresh), excludeVideoIds: [] }
+      : { forceRefresh: false, excludeVideoIds: existingVideoIds };
+
+  onStatus(
+    excludePayload.forceRefresh
+      ? `Fetching videos from ${channels.length} channel(s) (full YouTube fetch)…`
+      : existingVideoIds.length
+        ? `Fetching videos from ${channels.length} channel(s) (skipping ${existingVideoIds.length} already in digest)…`
+        : `Fetching videos from ${channels.length} channel(s) in parallel…`,
+    "running"
+  );
+
+  // POST avoids huge query strings when many video IDs are excluded.
   const results = await Promise.allSettled(
-    channels.map(c =>
-      fetch(`/api/youtube?channelId=${c.id}&since=${encodeURIComponent(since)}`)
-        .then(res => {
-          if (!res.ok) return res.json().then(e => { throw new Error(e.error || `HTTP ${res.status}`); });
-          return res.json();
-        })
+    channels.map((c) =>
+      fetch("/api/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal,
+        body: JSON.stringify({
+          channelId: c.id,
+          since,
+          excludeVideoIds: excludePayload.excludeVideoIds,
+          forceRefresh: excludePayload.forceRefresh,
+        }),
+      }).then((res) => {
+        if (!res.ok) return res.json().then((e) => { throw new Error(e.error || `HTTP ${res.status}`); });
+        return res.json();
+      })
     )
   );
+
+  abortIfNeeded(signal);
 
   let allVideos = [];
   const errors = [];
   results.forEach((r, i) => {
-    if (r.status === 'fulfilled' && r.value?.videos) {
+    if (r.status === "fulfilled" && r.value?.videos) {
       allVideos.push(...r.value.videos);
-    } else if (r.status === 'rejected') {
-      errors.push(`${channels[i].name}: ${r.reason?.message}`);
+    } else if (r.status === "rejected") {
+      const msg = r.reason?.name === "AbortError" ? "cancelled" : r.reason?.message;
+      errors.push(`${channels[i].name}: ${msg}`);
     }
   });
 
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
   if (allVideos.length === 0) {
-    const detail = errors.length ? ` Errors: ${errors.join('; ')}` : '';
+    const detail = errors.length ? ` Errors: ${errors.join("; ")}` : "";
     throw new Error(`No videos found for "${since}" timeframe.${detail}`);
   }
 
@@ -513,6 +672,7 @@ Return ONLY a valid JSON array, no other text.`;
   const chunkSize = 20;
 
   for (let i = 0; i < allVideos.length; i += chunkSize) {
+    abortIfNeeded(signal);
     const chunk = allVideos.slice(i, i + chunkSize);
     onStatus(`Agent analyzing batch ${Math.ceil(i/chunkSize)+1}/${Math.ceil(allVideos.length/chunkSize)}...`, "running");
 
@@ -525,6 +685,7 @@ Return ONLY a valid JSON array, no other text.`;
     const res = await fetch("/api/anthropic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 12000,
@@ -588,12 +749,37 @@ export default function App() {
   
   // Sorting & Filtering
   const [tagFilter, setTagFilter] = useState("All");
-  const [channelFilter, setChannelFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Date (Newest)");
   const [viewMode, setViewMode] = useState("list");
   const [tagQuery, setTagQuery] = useState("");
   const [openDesc, setOpenDesc] = useState({});
   const [openLinks, setOpenLinks] = useState({});
+  const [digestChannelIds, setDigestChannelIds] = useState(() => new Set());
+  const [visibleChannelIds, setVisibleChannelIds] = useState(() => new Set());
+  const [descriptionByVideoId, setDescriptionByVideoId] = useState({});
+  const [loadingDescId, setLoadingDescId] = useState(null);
+  const prevChannelIdsRef = useRef(new Set());
+  const digestAbortRef = useRef(null);
+  /** Re-run YouTube search + videos.list for every item (higher quota; ignores skip list). */
+  const [forceYoutubeRefresh, setForceYoutubeRefresh] = useState(false);
+
+  useEffect(() => {
+    const ids = new Set(channels.map((c) => c.id));
+    const prev = prevChannelIdsRef.current;
+    const mergeSel = (sel) => {
+      const next = new Set();
+      for (const id of sel) {
+        if (ids.has(id)) next.add(id);
+      }
+      for (const c of channels) {
+        if (!prev.has(c.id)) next.add(c.id);
+      }
+      return next;
+    };
+    setDigestChannelIds(mergeSel);
+    setVisibleChannelIds(mergeSel);
+    prevChannelIdsRef.current = ids;
+  }, [channels]);
 
   // Load persisted channels and results from Supabase on mount
   useEffect(() => {
@@ -612,7 +798,7 @@ export default function App() {
           title: r.title,
           channel: r.channel,
           publishedAt: r.published_at,
-          tags: r.tags || [],
+          tags: normalizeTags(r.tags),
           summary: r.summary,
           keyPoints: r.key_points,
           description: r.description ?? "",
@@ -641,6 +827,59 @@ export default function App() {
     }
   };
 
+  const toggleDigestChannel = (id) => {
+    setDigestChannelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllDigest = () => {
+    setDigestChannelIds(new Set(channels.map((c) => c.id)));
+  };
+
+  const clearDigestSelection = () => {
+    setDigestChannelIds(new Set());
+  };
+
+  const toggleVisibleChannel = (id) => {
+    setVisibleChannelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setVisibleChannelIds(new Set(channels.map((c) => c.id)));
+  };
+
+  const clearVisibleSelection = () => {
+    setVisibleChannelIds(new Set());
+  };
+
+  const fetchDescriptionIfNeeded = async (v) => {
+    const cached = (v.description || descriptionByVideoId[v.videoId] || "").trim();
+    if (cached || !v.videoId) return;
+    setLoadingDescId(v.id);
+    try {
+      const res = await fetch(`/api/youtube?videoId=${encodeURIComponent(v.videoId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load description");
+      const d = data.description ?? "";
+      if (d) {
+        setDescriptionByVideoId((prev) => ({ ...prev, [v.videoId]: d }));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDescId(null);
+    }
+  };
+
   const deleteResult = async (videoId, channel) => {
     setVideos(prev => prev.filter(v => !(v.videoId === videoId && v.channel === channel)));
     if (dbReady) {
@@ -648,27 +887,20 @@ export default function App() {
     }
   };
 
-  const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(videos, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `ytdigest-${new Date().toISOString().slice(0,10)}.json`; a.click();
-  };
-
-  const exportMarkdown = () => {
-    const md = videos.map(v =>
-      `## ${v.title}\n**Channel:** ${v.channel}  \n**Published:** ${new Date(v.publishedAt).toLocaleDateString()}  \n**Tags:** ${(v.tags||[]).join(', ')}  \n**Watch:** https://www.youtube.com/watch?v=${v.videoId}\n\n${v.summary}\n`
-    ).join('\n---\n\n');
-    const blob = new Blob([md], { type: 'text/markdown' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `ytdigest-${new Date().toISOString().slice(0,10)}.md`; a.click();
-  };
-
   const handleRun = async () => {
+    const selectedChannels = channels.filter((c) => digestChannelIds.has(c.id));
     if (channels.length === 0) return;
+    if (selectedChannels.length === 0) {
+      setStatus("Select at least one channel for the digest.");
+      setStatusType("error");
+      return;
+    }
     setRunning(true);
+    digestAbortRef.current = new AbortController();
+    const { signal } = digestAbortRef.current;
+
     // Do NOT clear videos — results accumulate (append-only)
     setTagFilter("All");
-    setChannelFilter("All");
 
     const newVideos = [];
 
@@ -678,9 +910,22 @@ export default function App() {
         await sbFetch('channels', 'POST', channels.map(c => ({ id: c.id, name: c.name })));
       }
 
+      const selectedNames = new Set(selectedChannels.map((c) => c.name));
+      const existingVideoIds = [
+        ...new Set(
+          videos
+            .filter((v) => selectedNames.has(v.channel))
+            .map((v) => v.videoId)
+            .filter(Boolean)
+        ),
+      ];
+
       await runAgent({
-        channels,
+        channels: selectedChannels,
         since,
+        signal,
+        existingVideoIds,
+        forceRefresh: forceYoutubeRefresh,
         onStatus: (msg, type) => { setStatus(msg); setStatusType(type); },
         onVideo: (v) => {
           newVideos.push(v);
@@ -691,7 +936,18 @@ export default function App() {
         },
       });
 
-      // Persist new results to Supabase (append-only upsert)
+      setStatusType("success");
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        setStatus("Digest cancelled.");
+        setStatusType("success");
+      } else {
+        setStatus(`Error: ${err.message}`);
+        setStatusType("error");
+      }
+    } finally {
+      setRunning(false);
+      digestAbortRef.current = null;
       if (dbReady && newVideos.length > 0) {
         const rows = newVideos.map(v => ({
           id: v.id,
@@ -706,36 +962,44 @@ export default function App() {
         }));
         await sbFetch('results', 'POST', rows);
       }
-
-      setStatusType("success");
-    } catch (err) {
-      setStatus(`Error: ${err.message}`);
-      setStatusType("error");
-    } finally {
-      setRunning(false);
     }
   };
 
-  const allTags = useMemo(
-    () => ["All", ...new Set(videos.flatMap((v) => v.tags || []))].filter(Boolean),
-    [videos]
-  );
+  const handleCancelDigest = () => {
+    digestAbortRef.current?.abort();
+  };
+
+  const allTags = useMemo(() => {
+    const set = new Set();
+    for (const v of videos) {
+      for (const t of normalizeTags(v.tags)) {
+        set.add(t);
+      }
+    }
+    return ["All", ...[...set].sort((a, b) => a.localeCompare(b))];
+  }, [videos]);
 
   const tagsForBank = useMemo(() => {
     const q = tagQuery.trim().toLowerCase();
     return allTags.filter((t) => t === "All" || t.toLowerCase().includes(q));
   }, [allTags, tagQuery]);
 
-  const allChannels = useMemo(
-    () => ["All", ...new Set(videos.map((v) => v.channel))].filter(Boolean),
-    [videos]
-  );
+  /** When null, show videos from every channel. When a Set, restrict to those channel names. */
+  const visibleChannelNames = useMemo(() => {
+    if (channels.length === 0) return null;
+    if (visibleChannelIds.size === channels.length) return null;
+    return new Set(channels.filter((c) => visibleChannelIds.has(c.id)).map((c) => c.name));
+  }, [channels, visibleChannelIds]);
 
   const filtered = useMemo(() => {
     let list =
-      tagFilter === "All" ? [...videos] : videos.filter((v) => v.tags?.includes(tagFilter));
-    if (channelFilter !== "All") {
-      list = list.filter((v) => v.channel === channelFilter);
+      tagFilter === "All" ? [...videos] : videos.filter((v) => videoHasTag(v, tagFilter));
+    if (visibleChannelNames !== null) {
+      if (visibleChannelNames.size === 0) {
+        list = [];
+      } else {
+        list = list.filter((v) => visibleChannelNames.has(v.channel));
+      }
     }
     list.sort((a, b) => {
       if (sortBy.includes("Date")) {
@@ -748,7 +1012,41 @@ export default function App() {
       return 0;
     });
     return list;
-  }, [videos, tagFilter, channelFilter, sortBy]);
+  }, [videos, tagFilter, visibleChannelNames, sortBy]);
+
+  const exportJSON = useCallback(() => {
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ytdigest-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+  }, [filtered]);
+
+  const exportMarkdown = useCallback(() => {
+    const md = filtered
+      .map(
+        (v) =>
+          `## ${v.title}\n**Channel:** ${v.channel}  \n**Published:** ${new Date(v.publishedAt).toLocaleDateString()}  \n**Tags:** ${normalizeTags(v.tags).join(", ")}  \n**Watch:** https://www.youtube.com/watch?v=${v.videoId}\n\n${v.summary}\n`
+      )
+      .join("\n---\n\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ytdigest-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+  }, [filtered]);
+
+  const toggleDesc = async (v) => {
+    const willOpen = !openDesc[v.id];
+    setOpenDesc((o) => ({ ...o, [v.id]: willOpen }));
+    if (willOpen) await fetchDescriptionIfNeeded(v);
+  };
+
+  const toggleLinks = async (v) => {
+    const willOpen = !openLinks[v.id];
+    setOpenLinks((o) => ({ ...o, [v.id]: willOpen }));
+    if (willOpen) await fetchDescriptionIfNeeded(v);
+  };
 
   return (
     <>
@@ -761,10 +1059,48 @@ export default function App() {
         </header>
 
         <div className="panel">
-          <div className="r-label" style={{ marginBottom: 14 }}>Channels</div>
+          <div className="channel-panel-head">
+            <div className="r-label">Channels</div>
+            {channels.length > 0 && (
+              <>
+                <div className="channel-digest-actions">
+                  <span className="r-label" style={{ marginRight: 6 }}>Digest</span>
+                  <button type="button" className="btn-text" onClick={selectAllDigest}>
+                    All
+                  </button>
+                  <button type="button" className="btn-text" onClick={clearDigestSelection}>
+                    None
+                  </button>
+                </div>
+                <div className="channel-view-actions">
+                  <span className="r-label" style={{ marginRight: 6 }}>View</span>
+                  <button type="button" className="btn-text" onClick={selectAllVisible}>
+                    All
+                  </button>
+                  <button type="button" className="btn-text" onClick={clearVisibleSelection}>
+                    None
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           {channels.map((ch) => (
             <div className="channel-row" key={ch.id}>
-              <div className="channel-line" />
+              <input
+                type="checkbox"
+                className="ch-cb"
+                checked={digestChannelIds.has(ch.id)}
+                onChange={() => toggleDigestChannel(ch.id)}
+                aria-label={`Include ${ch.name} in next digest`}
+              />
+              <input
+                type="checkbox"
+                className="ch-cb"
+                checked={visibleChannelIds.has(ch.id)}
+                onChange={() => toggleVisibleChannel(ch.id)}
+                aria-label={`Show results for ${ch.name}`}
+              />
+              <div className="channel-line" aria-hidden />
               <span className="channel-name">{ch.name}</span>
               <span className="channel-id">{ch.id}</span>
               <button type="button" className="remove-btn" onClick={() => removeChannel(ch.id)} aria-label="Remove channel">
@@ -797,14 +1133,6 @@ export default function App() {
 
           {videos.length > 0 && (
             <>
-              <span className="r-label">Channel</span>
-              <select className="r-select" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
-                {allChannels.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
               <span className="r-label">Sort</span>
               <select className="r-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                 <option>Date (Newest)</option>
@@ -845,7 +1173,25 @@ export default function App() {
             </>
           )}
 
-          <button type="button" className="btn primary" onClick={handleRun} disabled={running || channels.length === 0}>
+          <label
+            className="r-opt"
+            title="Off: skip YouTube enrichment for videos already in this digest (lower quota). On: fetch and enrich every video again."
+          >
+            <input
+              type="checkbox"
+              checked={forceYoutubeRefresh}
+              onChange={(e) => setForceYoutubeRefresh(e.target.checked)}
+              disabled={running}
+            />
+            Full YouTube re-fetch
+          </label>
+
+          <button
+            type="button"
+            className="btn primary"
+            onClick={handleRun}
+            disabled={running || channels.length === 0 || digestChannelIds.size === 0}
+          >
             {running ? "Running…" : "Run digest"}
           </button>
         </div>
@@ -853,7 +1199,12 @@ export default function App() {
         {status && (
           <div className={`status-bar ${statusType}`}>
             {statusType === "running" && <div className="spinner" />}
-            <span>{status}</span>
+            <span className="status-msg">{status}</span>
+            {running && (
+              <button type="button" className="btn" onClick={handleCancelDigest}>
+                Cancel
+              </button>
+            )}
           </div>
         )}
 
@@ -885,7 +1236,7 @@ export default function App() {
                     {tag}
                     {tag !== "All" && (
                       <span style={{ marginLeft: 6, opacity: 0.75 }}>
-                        ({videos.filter((v) => v.tags?.includes(tag)).length})
+                        ({videos.filter((v) => videoHasTag(v, tag)).length})
                       </span>
                     )}
                   </button>
@@ -895,10 +1246,12 @@ export default function App() {
 
             <div className={`digest-scroll ${viewMode === "grid" ? "digest-grid-view" : "digest-list"}`}>
               {filtered.map((v) => {
-                const desc = (v.description || "").trim();
-                const hasDesc = desc.length > 0;
-                const linkSource = `${v.description || ""}\n${v.summary || ""}`;
-                const extraLinks = extractLinksFromText(linkSource).filter(
+                const mergedDesc = (
+                  v.description ||
+                  descriptionByVideoId[v.videoId] ||
+                  ""
+                ).trim();
+                const extraLinks = extractLinksFromText(mergedDesc).filter(
                   (l) =>
                     !l.url.includes(`watch?v=${v.videoId}`) &&
                     !l.url.includes(`youtu.be/${v.videoId}`)
@@ -927,7 +1280,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="card-tags-scroll" aria-label="Tags">
-                      {(v.tags || []).map((t) => (
+                      {normalizeTags(v.tags).map((t) => (
                         <span key={t} className="badge">
                           {t}
                         </span>
@@ -944,46 +1297,56 @@ export default function App() {
                     </div>
                     <p className="summary-text">{v.summary}</p>
 
-                    {hasDesc && (
+                    {v.videoId && (
                       <div className="r-expand">
-                        <button
-                          type="button"
-                          className="r-expand-btn"
-                          onClick={() =>
-                            setOpenDesc((o) => ({ ...o, [v.id]: !o[v.id] }))
-                          }
-                        >
+                        <button type="button" className="r-expand-btn" onClick={() => toggleDesc(v)}>
                           <span className={`r-chevron ${openDesc[v.id] ? "open" : ""}`}>›</span>
                           Original description
                         </button>
-                        {openDesc[v.id] && <div className="r-expand-body">{desc}</div>}
+                        {openDesc[v.id] && loadingDescId === v.id && !mergedDesc && (
+                          <div className="r-expand-body">Loading…</div>
+                        )}
+                        {openDesc[v.id] && mergedDesc && (
+                          <div className="r-expand-body">{mergedDesc}</div>
+                        )}
+                        {openDesc[v.id] && !mergedDesc && loadingDescId !== v.id && (
+                          <div className="r-expand-body" style={{ color: "var(--r-text-faint)" }}>
+                            No description available.
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {extraLinks.length > 0 && (
+                    {v.videoId && (
                       <div className="r-expand">
-                        <button
-                          type="button"
-                          className="r-expand-btn"
-                          onClick={() =>
-                            setOpenLinks((o) => ({ ...o, [v.id]: !o[v.id] }))
-                          }
-                        >
+                        <button type="button" className="r-expand-btn" onClick={() => toggleLinks(v)}>
                           <span className={`r-chevron ${openLinks[v.id] ? "open" : ""}`}>›</span>
                           Links & downloads ({extraLinks.length})
                         </button>
                         {openLinks[v.id] && (
-                          <ul className="link-list r-expand-body">
-                            {extraLinks.map((l) => (
-                              <li key={l.url}>
-                                <div className="link-kind">{l.kind}</div>
-                                <a href={l.url} target="_blank" rel="noopener noreferrer">
-                                  {l.host}
-                                  {l.kind === "pdf" ? " · PDF" : ""}
-                                </a>
-                              </li>
-                            ))}
-                          </ul>
+                          <div className="r-expand-body">
+                            {extraLinks.length === 0 ? (
+                              <p style={{ color: "var(--r-text-faint)", fontSize: 12 }}>
+                                {mergedDesc
+                                  ? "No URLs found in the video description."
+                                  : loadingDescId === v.id
+                                    ? "Loading description…"
+                                    : "Open to load the full description from YouTube, then links appear here."}
+                              </p>
+                            ) : (
+                              <ul className="link-list">
+                                {extraLinks.map((l) => (
+                                  <li key={l.url}>
+                                    <div className="link-kind">{l.kind}</div>
+                                    <a href={l.url} target="_blank" rel="noopener noreferrer">
+                                      {l.host}
+                                      {l.kind === "pdf" ? " · PDF" : ""}
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

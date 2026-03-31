@@ -3,9 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 
 function getClient() {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
+  const key =
+    process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error('Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to your environment variables.');
+    throw new Error(
+      'Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY from the Supabase dashboard) to your environment variables.'
+    );
   }
   return createClient(url, key);
 }
@@ -22,7 +25,7 @@ export async function GET(req) {
   if (resource === 'channels') {
     const { data, error } = await supabase.from('channels').select('*').order('created_at');
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ channels: data });
+    return NextResponse.json({ channels: data ?? [] });
   }
 
   if (resource === 'results') {
@@ -31,7 +34,7 @@ export async function GET(req) {
       .select('*')
       .order('published_at', { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ results: data });
+    return NextResponse.json({ results: data ?? [] });
   }
 
   return NextResponse.json({ error: 'resource param required' }, { status: 400 });

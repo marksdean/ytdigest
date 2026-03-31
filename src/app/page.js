@@ -1240,7 +1240,14 @@ async function sbFetch(resource, method = 'GET', data = null) {
   const url = `/api/supabase?resource=${resource}`;
   if (method === 'GET') {
     const res = await fetch(url);
-    return res.ok ? res.json() : null;
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        loadFailed: true,
+        error: json.error || `HTTP ${res.status}`,
+      };
+    }
+    return json;
   }
   const res = await fetch(url, {
     method: 'POST',
@@ -1338,7 +1345,8 @@ export default function App() {
         sbFetch('channels'),
         sbFetch('results'),
       ]);
-      if (chRes?.channels) {
+
+      if (Array.isArray(chRes?.channels)) {
         const list = chRes.channels.map((c) => ({ id: c.id, name: c.name }));
         const ids = new Set(list.map((c) => c.id));
         prevChannelIdsRef.current = ids;
@@ -1346,8 +1354,9 @@ export default function App() {
         setDigestChannelIds(ids);
         setVisibleChannelIds(ids);
       }
-      if (resRes?.results?.length > 0) {
-        const mapped = resRes.results.map(r => ({
+
+      if (Array.isArray(resRes?.results)) {
+        const mapped = resRes.results.map((r) => ({
           id: r.id,
           videoId: r.video_id,
           title: decodeHtmlEntities(r.title),
@@ -1363,10 +1372,19 @@ export default function App() {
         }));
         setVideos(mapped);
       }
-      setDbReady(true);
+
+      const loadErrors = [];
+      if (chRes?.loadFailed) loadErrors.push(`Channels: ${chRes.error}`);
+      if (resRes?.loadFailed) loadErrors.push(`Digest results: ${resRes.error}`);
+      if (loadErrors.length > 0) {
+        setStatus(loadErrors.join(' · '));
+        setStatusType('error');
+      }
+      setDbReady(loadErrors.length === 0);
     }
-    loadFromSupabase().catch(() => {
-      // Supabase not configured yet — fall back silently
+    loadFromSupabase().catch((e) => {
+      setStatus(`Database load failed: ${e?.message || String(e)}`);
+      setStatusType('error');
       setDbReady(false);
     });
   }, []);

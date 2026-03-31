@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# YouTube Digest Agent (V3)
 
-## Getting Started
+A production-ready Next.js application that autonomously monitors specific YouTube channels, fetches long-term video histories, and utilizes Claude AI to dynamically generate fine-grained, highly specific subject tags and summaries without hallucination.
 
-First, run the development server:
+## 🚀 V3 Features
+- **Deep Historical Sourcing:** Bypasses standard 15-video RSS limits by parsing official uploads playlists, fetching up to **100 historical videos** per channel natively.
+- **Intelligent Prompt Batching:** Bypasses strict LLM output limit crashes by natively queueing up payloads and sending automated chunks of 20 videos at a time sequentially to the Anthropic API proxy.
+- **Dynamic Subject Tagging:** No more hardcoded static categories. Claude actively reads real video descriptions and dynamically generates organic categories (e.g., `music theory`, `react`, `chords`, `ai models`).
+- **Resilient Persistence:** Processed feeds, summaries, and tags are cleanly serialized to the browser's `localStorage` to survive page refreshes instantly and prevent unnecessary API credit burn.
+- **Advanced GUI Control Arrays:** Features an active 'Timeframe' bounding filter, a 'Channel' isolation dropdown, and rigorous Author + Date 'Sort By' mechanisms.
+- **Secure Backend API Proxies:** Client-side API key inputs have been removed entirely. The layout strictly relies on scalable, server-side Next.js route handlers (`/api/anthropic` and `/api/youtube`) to prevent API Key exposure and CORS failures!
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 💻 Local Setup
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Clone & Install**
+   ```bash
+   git clone https://github.com/marksdean/ytdigest.git
+   cd ytdigest
+   npm install
+   ```
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+2. **Environment Configuration**
+   Create a `.env.local` file in the root directory and configure your Anthropic API Key securely:
+   ```env
+   ANTHROPIC_API_KEY=sk-ant-your-key-here
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. **Launch the Architecture**
+   ```bash
+   npm run dev
+   ```
+   Navigate effortlessly to `http://localhost:3000` to start executing automated digests!
 
-## Learn More
+## ☁️ Vercel Deployment
 
-To learn more about Next.js, take a look at the following resources:
+This project is built explicitly on the **Next.js App Router** and is fully ready to deploy gracefully to Vercel edge/serverless infrastructure.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Connect your repository to Vercel.
+2. Under Project Settings > **Environment Variables**, provide your `ANTHROPIC_API_KEY` identically.
+3. Hit Deploy! Vercel automatically secures and binds all relative `/api/anthropic` proxies out-of-the-box.

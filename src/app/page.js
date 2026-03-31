@@ -63,6 +63,34 @@ function normalizeTags(raw) {
   }
   if (typeof raw === "string") {
     const s = raw.trim();
+    // PostgreSQL text[] literal from some drivers, e.g. {Jazz Piano,chords} or {"a","b"}
+    if (s.startsWith("{") && s.endsWith("}")) {
+      const inner = s.slice(1, -1).trim();
+      if (!inner) return [];
+      const parts = [];
+      let i = 0;
+      while (i < inner.length) {
+        while (i < inner.length && inner[i] === ",") i++;
+        if (i >= inner.length) break;
+        if (inner[i] === '"') {
+          i++;
+          let buf = "";
+          while (i < inner.length && inner[i] !== '"') {
+            if (inner[i] === "\\") i++;
+            buf += inner[i] ?? "";
+            i++;
+          }
+          if (inner[i] === '"') i++;
+          parts.push(buf.trim());
+        } else {
+          const j = inner.indexOf(",", i);
+          const piece = (j === -1 ? inner.slice(i) : inner.slice(i, j)).trim();
+          if (piece) parts.push(piece);
+          i = j === -1 ? inner.length : j + 1;
+        }
+      }
+      return [...new Set(parts.map((t) => String(t).trim()).filter(Boolean))];
+    }
     if (s.startsWith("[")) {
       try {
         const p = JSON.parse(s);
@@ -86,7 +114,9 @@ function normalizeTags(raw) {
 }
 
 function videoHasTag(video, tag) {
-  return normalizeTags(video.tags).includes(tag);
+  const t = String(tag).trim();
+  if (!t) return false;
+  return normalizeTags(video.tags).some((x) => x === t);
 }
 
 const STYLES = `
@@ -148,20 +178,69 @@ const STYLES = `
     margin-bottom: 1rem;
   }
 
-  .channel-panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
+  .channel-table-wrap {
+    width: 100%;
+    overflow-x: auto;
   }
-  .channel-digest-actions,
-  .channel-view-actions {
+  .channel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    table-layout: fixed;
+  }
+  .channel-table thead th {
+    vertical-align: bottom;
+    padding: 0 10px 12px 0;
+    font-weight: 400;
+  }
+  .ch-th-cb {
+    width: 76px;
+    text-align: center;
+  }
+  .ch-th-title {
+    display: block;
+    font-family: var(--r-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--r-text);
+    margin-bottom: 2px;
+  }
+  .ch-th-hint {
+    display: block;
+    font-size: 9px;
+    color: var(--r-text-muted);
+    line-height: 1.35;
+    margin-bottom: 8px;
+    max-width: 84px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .ch-th-bulk {
     display: flex;
+    flex-direction: column;
     gap: 4px;
-    align-items: center;
+    align-items: stretch;
   }
+  .channel-table tbody td {
+    padding: 10px 10px 10px 0;
+    border-top: 1px solid var(--r-line);
+    vertical-align: middle;
+  }
+  .channel-table tbody tr:first-child td {
+    border-top: none;
+  }
+  .ch-td-cb {
+    text-align: center;
+    width: 76px;
+  }
+  .ch-td-line {
+    width: 3px;
+    padding-left: 0 !important;
+    padding-right: 4px !important;
+  }
+
   .btn-text {
     background: none;
     border: none;
@@ -173,18 +252,12 @@ const STYLES = `
     color: var(--r-text-muted);
     cursor: pointer;
   }
-  .btn-text:hover { color: var(--r-text); }
-
-  .channel-row {
-    display: grid;
-    grid-template-columns: 18px 18px 3px minmax(0, 1fr) auto auto;
-    gap: 10px 12px;
-    align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--r-line);
-    font-size: 13px;
+  .btn-text:hover:not(.is-on) { color: var(--r-text); }
+  .btn-text.is-on {
+    background: var(--r-text);
+    color: var(--r-surface);
+    border-radius: var(--r-radius);
   }
-  .channel-row:last-child { border-bottom: none; }
   .ch-cb {
     width: 14px;
     height: 14px;
@@ -766,13 +839,21 @@ export default function App() {
   useEffect(() => {
     const ids = new Set(channels.map((c) => c.id));
     const prev = prevChannelIdsRef.current;
+
+    const sameIds =
+      prev.size === ids.size && [...prev].every((id) => ids.has(id));
+    if (sameIds) {
+      prevChannelIdsRef.current = ids;
+      return;
+    }
+
     const mergeSel = (sel) => {
       const next = new Set();
       for (const id of sel) {
         if (ids.has(id)) next.add(id);
       }
-      for (const c of channels) {
-        if (!prev.has(c.id)) next.add(c.id);
+      for (const id of ids) {
+        if (!prev.has(id)) next.add(id);
       }
       return next;
     };
@@ -991,9 +1072,21 @@ export default function App() {
     return new Set(channels.filter((c) => visibleChannelIds.has(c.id)).map((c) => c.name));
   }, [channels, visibleChannelIds]);
 
+  const digestAllOn =
+    channels.length > 0 && digestChannelIds.size === channels.length;
+  const digestNoneOn =
+    channels.length > 0 && digestChannelIds.size === 0;
+  const viewAllOn =
+    channels.length > 0 && visibleChannelIds.size === channels.length;
+  const viewNoneOn =
+    channels.length > 0 && visibleChannelIds.size === 0;
+
   const filtered = useMemo(() => {
+    const tf = tagFilter.trim();
     let list =
-      tagFilter === "All" ? [...videos] : videos.filter((v) => videoHasTag(v, tagFilter));
+      tf === "All" || tf === ""
+        ? [...videos]
+        : videos.filter((v) => videoHasTag(v, tf));
     if (visibleChannelNames !== null) {
       if (visibleChannelNames.size === 0) {
         list = [];
@@ -1059,55 +1152,106 @@ export default function App() {
         </header>
 
         <div className="panel">
-          <div className="channel-panel-head">
-            <div className="r-label">Channels</div>
-            {channels.length > 0 && (
-              <>
-                <div className="channel-digest-actions">
-                  <span className="r-label" style={{ marginRight: 6 }}>Digest</span>
-                  <button type="button" className="btn-text" onClick={selectAllDigest}>
-                    All
-                  </button>
-                  <button type="button" className="btn-text" onClick={clearDigestSelection}>
-                    None
-                  </button>
-                </div>
-                <div className="channel-view-actions">
-                  <span className="r-label" style={{ marginRight: 6 }}>View</span>
-                  <button type="button" className="btn-text" onClick={selectAllVisible}>
-                    All
-                  </button>
-                  <button type="button" className="btn-text" onClick={clearVisibleSelection}>
-                    None
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          {channels.map((ch) => (
-            <div className="channel-row" key={ch.id}>
-              <input
-                type="checkbox"
-                className="ch-cb"
-                checked={digestChannelIds.has(ch.id)}
-                onChange={() => toggleDigestChannel(ch.id)}
-                aria-label={`Include ${ch.name} in next digest`}
-              />
-              <input
-                type="checkbox"
-                className="ch-cb"
-                checked={visibleChannelIds.has(ch.id)}
-                onChange={() => toggleVisibleChannel(ch.id)}
-                aria-label={`Show results for ${ch.name}`}
-              />
-              <div className="channel-line" aria-hidden />
-              <span className="channel-name">{ch.name}</span>
-              <span className="channel-id">{ch.id}</span>
-              <button type="button" className="remove-btn" onClick={() => removeChannel(ch.id)} aria-label="Remove channel">
-                ×
-              </button>
+          <p className="r-label" style={{ marginBottom: 12 }}>
+            Channels
+          </p>
+          {channels.length > 0 && (
+            <div className="channel-table-wrap">
+              <table className="channel-table">
+                <thead>
+                  <tr>
+                    <th scope="col" className="ch-th-cb">
+                      <span className="ch-th-title">Digest</span>
+                      <span className="ch-th-hint">Include in next run</span>
+                      <div className="ch-th-bulk">
+                        <button
+                          type="button"
+                          className={`btn-text ${digestAllOn ? "is-on" : ""}`}
+                          onClick={selectAllDigest}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn-text ${digestNoneOn ? "is-on" : ""}`}
+                          onClick={clearDigestSelection}
+                        >
+                          None
+                        </button>
+                      </div>
+                    </th>
+                    <th scope="col" className="ch-th-cb">
+                      <span className="ch-th-title">View</span>
+                      <span className="ch-th-hint">Show in results</span>
+                      <div className="ch-th-bulk">
+                        <button
+                          type="button"
+                          className={`btn-text ${viewAllOn ? "is-on" : ""}`}
+                          onClick={selectAllVisible}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn-text ${viewNoneOn ? "is-on" : ""}`}
+                          onClick={clearVisibleSelection}
+                        >
+                          None
+                        </button>
+                      </div>
+                    </th>
+                    <th scope="col" aria-hidden className="ch-td-line" />
+                    <th scope="col" className="ch-th-channel r-label">
+                      Channel
+                    </th>
+                    <th scope="col" className="r-label">
+                      ID
+                    </th>
+                    <th scope="col" aria-label="Remove" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {channels.map((ch) => (
+                    <tr key={ch.id}>
+                      <td className="ch-td-cb">
+                        <input
+                          type="checkbox"
+                          className="ch-cb"
+                          checked={digestChannelIds.has(ch.id)}
+                          onChange={() => toggleDigestChannel(ch.id)}
+                          aria-label={`Include ${ch.name} in next digest`}
+                        />
+                      </td>
+                      <td className="ch-td-cb">
+                        <input
+                          type="checkbox"
+                          className="ch-cb"
+                          checked={visibleChannelIds.has(ch.id)}
+                          onChange={() => toggleVisibleChannel(ch.id)}
+                          aria-label={`Show results for ${ch.name}`}
+                        />
+                      </td>
+                      <td className="ch-td-line">
+                        <div className="channel-line" aria-hidden />
+                      </td>
+                      <td className="channel-name">{ch.name}</td>
+                      <td className="channel-id">{ch.id}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="remove-btn"
+                          onClick={() => removeChannel(ch.id)}
+                          aria-label="Remove channel"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
+          )}
           <div className="add-row">
             <input placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
             <input placeholder="Channel ID (UC…)" value={newId} onChange={(e) => setNewId(e.target.value)} />
@@ -1230,13 +1374,13 @@ export default function App() {
                   <button
                     key={tag}
                     type="button"
-                    className={`filter-chip ${tagFilter === tag ? "active" : ""}`}
-                    onClick={() => setTagFilter(tag)}
+                    className={`filter-chip ${tagFilter.trim() === tag.trim() ? "active" : ""}`}
+                    onClick={() => setTagFilter(tag.trim())}
                   >
                     {tag}
                     {tag !== "All" && (
                       <span style={{ marginLeft: 6, opacity: 0.75 }}>
-                        ({videos.filter((v) => videoHasTag(v, tag)).length})
+                        ({videos.filter((v) => videoHasTag(v, tag.trim())).length})
                       </span>
                     )}
                   </button>
@@ -1251,7 +1395,8 @@ export default function App() {
                   descriptionByVideoId[v.videoId] ||
                   ""
                 ).trim();
-                const extraLinks = extractLinksFromText(mergedDesc).filter(
+                const linkSourceText = [mergedDesc, v.summary || ""].filter(Boolean).join("\n");
+                const extraLinks = extractLinksFromText(linkSourceText).filter(
                   (l) =>
                     !l.url.includes(`watch?v=${v.videoId}`) &&
                     !l.url.includes(`youtu.be/${v.videoId}`)

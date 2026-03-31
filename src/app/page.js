@@ -115,9 +115,13 @@ async function runAgent({ channels, since, onStatus, onVideo }) {
         if (data.videos) {
             allVideos.push(...data.videos);
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || \`YouTube API failed with status \${res.status}\`);
       }
     } catch (err) {
       console.error('Failed to fetch for', c.name, err);
+      throw err; // Bubble the detailed error up to the UI status bar
     }
   }
 

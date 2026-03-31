@@ -1,6 +1,40 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+
+/** Decode `&#39;`, `&amp;`, etc. from API/LLM titles and text. */
+function decodeHtmlEntities(raw) {
+  if (raw == null) return "";
+  const s = String(raw);
+  if (typeof document === "undefined") {
+    return s
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
+  }
+  const ta = document.createElement("textarea");
+  ta.innerHTML = s;
+  return ta.value;
+}
+
+function youtubeWatchUrl(videoId) {
+  return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : "#";
+}
+
+function YoutubeMarkIcon() {
+  return (
+    <svg viewBox="0 0 24 18" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M23.5 2.8c-.3-1.1-1.2-2-2.3-2.3C19.5 0 12 0 12 0S4.5 0 2.8.5C1.7.8.8 1.7.5 2.8 0 4.5 0 9 0 9s0 4.5.5 6.2c.3 1.1 1.2 2 2.3 2.3C4.5 18 12 18 12 18s7.5 0 9.2-.5c1.1-.3 2-1.2 2.3-2.3.5-1.7.5-6.2.5-6.2s0-4.5-.5-6.2zM9.5 12.9V5.1L15.8 9 9.5 12.9z"
+      />
+    </svg>
+  );
+}
 import { PretextLines } from "@/components/PretextLines";
 import { PT, PT_LH } from "@/lib/pretextFonts";
 
@@ -204,10 +238,10 @@ const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
   :root {
-    /* Dieter Rams — DR01 + DR03 industrial palettes */
-    --r-bg: #E2E2D9;
-    --r-surface: #E1E4E1;
-    --r-surface-hot: #F2F1EC;
+    /* Page white; panels/dialog surfaces warm gray */
+    --r-bg: #ffffff;
+    --r-surface: #d9d2c6;
+    --r-surface-hot: #ece8e2;
     --r-line: #AAB7BF;
     --r-line-muted: #9C9C9C;
     --r-line-focus: #261201;
@@ -219,6 +253,10 @@ const STYLES = `
     --r-earth: #5F503E;
     --r-accent: #AD1D1D;
     --r-accent-hover: #8f1818;
+    --r-run-arrow: #736b1e;
+    --r-cancel: #bf1b1b;
+    --r-selected: #ed3f1c;
+    --r-on-selected: #ffffff;
     --r-accent-warm: #BF7C2A;
     --r-on-dark: #E1E4E1;
     --r-on-accent: #F2F1EC;
@@ -327,6 +365,20 @@ const STYLES = `
     padding: 1.25rem 1.35rem;
     margin-bottom: 1rem;
   }
+  .channel-panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .channel-panel-head .r-label { margin-bottom: 0 !important; }
+  .channels-collapsed-hint {
+    font-size: 12px;
+    color: var(--r-text-muted);
+    margin: 0 0 8px 0;
+  }
 
   .channel-table-wrap {
     width: 100%;
@@ -424,8 +476,8 @@ const STYLES = `
   }
   .btn-text:hover:not(.is-on) { color: var(--r-text); }
   .btn-text.is-on {
-    background: var(--r-text);
-    color: var(--r-on-dark);
+    background: var(--r-selected);
+    color: var(--r-on-selected);
     border-radius: var(--r-radius);
   }
   .ch-cb {
@@ -537,9 +589,19 @@ const STYLES = `
     flex-shrink: 0;
   }
   .btn-play svg { width: 18px; height: 18px; display: block; }
+  .btn-play svg path { fill: var(--r-run-arrow); }
   .btn-play .spinner {
     border-color: rgba(242, 241, 236, 0.35);
     border-top-color: var(--r-on-accent);
+  }
+  .btn-cancel {
+    background: var(--r-cancel) !important;
+    border-color: var(--r-cancel) !important;
+    color: #fff !important;
+  }
+  .btn-cancel:hover {
+    background: #a01717 !important;
+    border-color: #a01717 !important;
   }
 
   .r-select {
@@ -576,8 +638,8 @@ const STYLES = `
   }
   .seg button + button { border-left: 1px solid var(--r-line); }
   .seg button.is-on {
-    background: var(--r-text);
-    color: var(--r-on-dark);
+    background: var(--r-selected);
+    color: var(--r-on-selected);
   }
 
   .status-bar {
@@ -663,9 +725,9 @@ const STYLES = `
     max-width: 100%;
   }
   .filter-chip.active {
-    background: var(--r-text);
-    color: var(--r-on-dark);
-    border-color: var(--r-text);
+    background: var(--r-selected);
+    color: var(--r-on-selected);
+    border-color: var(--r-selected);
   }
   .filter-chip:hover:not(.active) { border-color: var(--r-text-faint); }
 
@@ -712,22 +774,47 @@ const STYLES = `
     margin-bottom: 8px;
     gap: 10px;
   }
+  .video-card--grid .thumb-link {
+    width: 100%;
+    min-height: 0;
+    align-self: stretch;
+  }
   .video-card--grid .thumb {
     width: 100%;
+    min-height: 0;
     height: auto;
     aspect-ratio: 16/9;
   }
   .video-card--grid .card-title { font-size: 13px; }
   .video-card--grid .summary-text { font-size: 11px; }
 
-  .card-top { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
-  .thumb {
-    width: 120px;
-    height: 68px;
-    object-fit: cover;
+  .card-top { display: flex; align-items: stretch; gap: 14px; margin-bottom: 12px; }
+  .thumb-link {
+    display: flex;
+    width: 200px;
     flex-shrink: 0;
+    align-self: stretch;
+    min-height: 104px;
     border: 1px solid var(--r-line);
     background: var(--r-bg);
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+  }
+  .thumb-link:focus-visible {
+    outline: 2px solid var(--r-line-focus);
+    outline-offset: 2px;
+  }
+  .thumb-link--placeholder {
+    pointer-events: none;
+    cursor: default;
+  }
+  .thumb {
+    width: 100%;
+    height: 100%;
+    min-height: 104px;
+    object-fit: cover;
+    display: block;
   }
 
   .card-meta { flex: 1; min-width: 0; }
@@ -835,14 +922,29 @@ const STYLES = `
     gap: 12px;
     flex-wrap: wrap;
   }
-  .watch-link {
-    font-size: 12px;
-    font-weight: 500;
+  .watch-link-yt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-radius);
+    border: 1px solid var(--r-line);
+    background: var(--r-surface-hot);
     color: var(--r-earth);
     text-decoration: none;
-    letter-spacing: 0.02em;
+    flex-shrink: 0;
   }
-  .watch-link:hover { color: var(--r-accent); text-decoration: underline; text-underline-offset: 3px; }
+  .watch-link-yt:hover {
+    color: var(--r-accent);
+    border-color: var(--r-text-faint);
+    background: var(--r-bg);
+  }
+  .watch-link-yt svg {
+    width: 22px;
+    height: 16px;
+    display: block;
+  }
   .key-points { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); }
 
   .card-actions {
@@ -1009,7 +1111,7 @@ Given a list of real video metadata, return a JSON array of video analysis objec
 Each object must have:
 - id: string (unique)
 - videoId: string (must match the input videoId exactly)
-- title: string (must match the input title)
+- title: string (must match the input title exactly; use plain Unicode text, never HTML entities like &#39; for apostrophes)
 - channel: string (must match the input channel/author exactly)
 - publishedAt: string (must match the input published date)
 - tags: array of strings. Generate 2 to 4 highly specific fine-grained subject tags based on the topic (e.g. "music theory", "chords", "react", "testing", "ai models"). Do not use broad terms like "General".
@@ -1061,9 +1163,12 @@ Return ONLY a valid JSON array, no other text.`;
           const src = byVideoId.get(v.videoId);
           const enriched = {
             ...v,
+            title: decodeHtmlEntities(v.title ?? ""),
             description: src?.description ?? "",
             channelId: src?.channelId ?? null,
-            channel: v.channel || src?.author || v.channel,
+            channel: decodeHtmlEntities(
+              v.channel || src?.author || v.channel || ""
+            ),
             starred: false,
             userNote: "",
           };
@@ -1109,7 +1214,8 @@ export default function App() {
   // Sorting & Filtering
   const [tagFilter, setTagFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Date (Newest)");
-  const [viewMode, setViewMode] = useState("list");
+  const [viewMode, setViewMode] = useState("grid");
+  const [channelsPanelHidden, setChannelsPanelHidden] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [openDesc, setOpenDesc] = useState({});
   const [openLinks, setOpenLinks] = useState({});
@@ -1170,8 +1276,8 @@ export default function App() {
         const mapped = resRes.results.map(r => ({
           id: r.id,
           videoId: r.video_id,
-          title: r.title,
-          channel: r.channel,
+          title: decodeHtmlEntities(r.title),
+          channel: decodeHtmlEntities(r.channel),
           channelId: r.channel_id ?? null,
           publishedAt: r.published_at,
           tags: normalizeTags(r.tags),
@@ -1610,17 +1716,39 @@ export default function App() {
 
         <main id="main-content">
         <section className="panel" aria-label="Channels">
-          <p className="r-label" style={{ marginBottom: 12 }}>
-            <PretextLines
-              as="span"
-              text="Channels"
-              font={PT.panelLabel}
-              lineHeightPx={PT_LH.panelLabel}
-              fixedWidth={120}
-              style={{ display: "inline-block" }}
-            />
-          </p>
-          {channels.length > 0 && (
+          <div className="channel-panel-head">
+            <p className="r-label" style={{ marginBottom: 0 }}>
+              <PretextLines
+                as="span"
+                text="Channels"
+                font={PT.panelLabel}
+                lineHeightPx={PT_LH.panelLabel}
+                fixedWidth={120}
+                style={{ display: "inline-block" }}
+              />
+            </p>
+            <button
+              type="button"
+              className="btn-text"
+              onClick={() => setChannelsPanelHidden((h) => !h)}
+              aria-expanded={!channelsPanelHidden}
+            >
+              <PretextLines
+                as="span"
+                text={channelsPanelHidden ? "Show channels" : "Hide channels"}
+                font={PT.btnText}
+                lineHeightPx={PT_LH.btnText}
+                fixedWidth={140}
+                style={{ display: "inline-block" }}
+              />
+            </button>
+          </div>
+          {channelsPanelHidden && channels.length > 0 && (
+            <p className="channels-collapsed-hint">
+              {channels.length} channel{channels.length === 1 ? "" : "s"} saved — show the list to change digest/view or remove entries.
+            </p>
+          )}
+          {!channelsPanelHidden && channels.length > 0 && (
             <div className="channel-table-wrap">
               <table className="channel-table">
                 <thead>
@@ -1999,7 +2127,7 @@ export default function App() {
               <PretextLines text={status || ""} font={PT.status} lineHeightPx={PT_LH.status} />
             </span>
             {running && (
-              <button type="button" className="btn" onClick={handleCancelDigest}>
+              <button type="button" className="btn btn-cancel" onClick={handleCancelDigest}>
                 <PretextLines
                   as="span"
                   text="Cancel"
@@ -2110,28 +2238,48 @@ export default function App() {
                   >
                     <div className="card-top">
                       {v.videoId ? (
-                        <img
-                          className="thumb"
-                          src={`https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`}
-                          alt={v.title}
-                        />
-                      ) : (
-                        <div className="thumb" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <PretextLines
-                            as="span"
-                            text="—"
-                            font={PT.tableCell}
-                            lineHeightPx={PT_LH.tableCell}
-                            fixedWidth={24}
-                            style={{ display: "inline-block" }}
+                        <a
+                          className="thumb-link"
+                          href={youtubeWatchUrl(v.videoId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open video on YouTube: ${decodeHtmlEntities(v.title)}`}
+                        >
+                          <img
+                            className="thumb"
+                            src={`https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`}
+                            alt=""
                           />
+                        </a>
+                      ) : (
+                        <div
+                          className="thumb-link thumb-link--placeholder"
+                          aria-hidden
+                        >
+                          <div
+                            className="thumb"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <PretextLines
+                              as="span"
+                              text="—"
+                              font={PT.tableCell}
+                              lineHeightPx={PT_LH.tableCell}
+                              fixedWidth={24}
+                              style={{ display: "inline-block" }}
+                            />
+                          </div>
                         </div>
                       )}
                       <div className="card-meta">
                         <div className="card-title">
                           <PretextLines
                             as="span"
-                            text={v.title}
+                            text={decodeHtmlEntities(v.title)}
                             font={isGrid ? PT.cardTitleGrid : PT.cardTitleList}
                             lineHeightPx={
                               isGrid ? PT_LH.cardTitleGrid : PT_LH.cardTitleList
@@ -2143,7 +2291,7 @@ export default function App() {
                         <div className="card-channel">
                           <PretextLines
                             as="span"
-                            text={v.channel}
+                            text={decodeHtmlEntities(v.channel)}
                             font={PT.cardChannel}
                             lineHeightPx={PT_LH.cardChannel}
                             maxLines={2}
@@ -2168,7 +2316,7 @@ export default function App() {
                         <span key={t} className="badge">
                           <PretextLines
                             as="span"
-                            text={t}
+                            text={decodeHtmlEntities(t)}
                             font={PT.badge}
                             lineHeightPx={PT_LH.badge}
                             fixedWidth={240}
@@ -2196,7 +2344,7 @@ export default function App() {
                     <p className="summary-text">
                       <PretextLines
                         as="span"
-                        text={v.summary || ""}
+                        text={decodeHtmlEntities(v.summary || "")}
                         font={isGrid ? PT.summaryGrid : PT.summaryList}
                         lineHeightPx={
                           isGrid ? PT_LH.summaryGrid : PT_LH.summaryList
@@ -2321,21 +2469,22 @@ export default function App() {
                     )}
 
                     <div className="card-footer">
-                      <a
-                        className="watch-link"
-                        href={`https://www.youtube.com/watch?v=${v.videoId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <PretextLines
-                          as="span"
-                          text="Open on YouTube"
-                          font={PT.watchLink}
-                          lineHeightPx={PT_LH.watchLink}
-                          fixedWidth={200}
-                          style={{ display: "inline-block" }}
-                        />
-                      </a>
+                      {v.videoId ? (
+                        <a
+                          className="watch-link-yt"
+                          href={youtubeWatchUrl(v.videoId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open on YouTube"
+                          title="Open on YouTube"
+                        >
+                          <YoutubeMarkIcon />
+                        </a>
+                      ) : (
+                        <span className="watch-link-yt" aria-hidden style={{ opacity: 0.35 }}>
+                          <YoutubeMarkIcon />
+                        </span>
+                      )}
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span className="key-points">
                           <PretextLines
@@ -2370,7 +2519,7 @@ export default function App() {
             <p>
               <PretextLines
                 as="span"
-                text="Add channels, run digest. Results list below; use layout to switch list or grid."
+                text="Add channels, run digest. Results appear below; switch layout between grid and list in the toolbar."
                 font={PT.emptyState}
                 lineHeightPx={PT_LH.emptyState}
                 style={{ display: "block" }}

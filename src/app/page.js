@@ -104,16 +104,17 @@ const INITIAL_CHANNELS = [
 ];
 
 async function runAgent({ channels, since, onStatus, onVideo }) {
-  onStatus("Fetching real videos from YouTube RSS...", "running");
+  onStatus(`Fetching videos from YouTube (${since})...`, "running");
 
   let allVideos = [];
   for (const c of channels) {
+    onStatus(`Fetching videos from ${c.name}...`, "running");
     try {
-      const res = await fetch(`/api/youtube?channelId=${c.id}`);
+      const res = await fetch(`/api/youtube?channelId=${c.id}&since=${encodeURIComponent(since)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.videos) {
-            allVideos.push(...data.videos);
+          allVideos.push(...data.videos);
         }
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -121,29 +122,12 @@ async function runAgent({ channels, since, onStatus, onVideo }) {
       }
     } catch (err) {
       console.error('Failed to fetch for', c.name, err);
-      throw err; // Bubble the detailed error up to the UI status bar
+      throw err;
     }
   }
 
   if (allVideos.length === 0) {
-    throw new Error("Could not fetch any videos from the provided channels. Ensure IDs are correct.");
-  }
-
-  const now = new Date();
-  allVideos = allVideos.filter(v => {
-    if (since === "All time") return true;
-    const pubDate = new Date(v.publishedAt);
-    const diffDays = (now - pubDate) / (1000 * 60 * 60 * 24);
-    if (since === "24 hours") return diffDays <= 1;
-    if (since === "3 days") return diffDays <= 3;
-    if (since === "7 days") return diffDays <= 7;
-    if (since === "1 month") return diffDays <= 30;
-    if (since === "1 year") return diffDays <= 365;
-    return true;
-  });
-
-  if (allVideos.length === 0) {
-    throw new Error(`No videos found matching the "${since}" timeframe.`);
+    throw new Error(`No videos found for the "${since}" timeframe. The channels may not have posted recently.`);
   }
 
   const systemPrompt = `You are a dynamic YouTube tech and education digest agent. Your job is to analyze real recent YouTube videos and summarize them.
@@ -211,6 +195,20 @@ Return ONLY a valid JSON array, no other text.`;
   onStatus(`Done — ${processedVideos.length} videos analyzed & tagged`, "success");
 }
 
+// Helper: call the Supabase proxy
+async function sbFetch(resource, method = 'GET', data = null) {
+  const url = `/api/supabase?resource=${resource}`;
+  if (method === 'GET') {
+    const res = await fetch(url);
+    return res.ok ? res.json() : null;
+  }
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resource, data }),
+  });
+}
+
 export default function App() {
   const [channels, setChannels] = useState(INITIAL_CHANNELS);
   const [newName, setNewName] = useState("");
@@ -220,26 +218,41 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [statusType, setStatusType] = useState("running");
   const [videos, setVideos] = useState([]);
+  const [dbReady, setDbReady] = useState(false);
   
   // Sorting & Filtering
   const [tagFilter, setTagFilter] = useState("All");
   const [channelFilter, setChannelFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Date (Newest)");
 
+  // Load persisted channels and results from Supabase on mount
   useEffect(() => {
-    const saved = localStorage.getItem('ytdigest-history');
-    if (saved) {
-      try {
-        setVideos(JSON.parse(saved));
-      } catch(e){}
+    async function loadFromSupabase() {
+      const [chRes, resRes] = await Promise.all([
+        sbFetch('channels'),
+        sbFetch('results'),
+      ]);
+      if (chRes?.channels?.length > 0) setChannels(chRes.channels);
+      if (resRes?.results?.length > 0) {
+        const mapped = resRes.results.map(r => ({
+          id: r.id,
+          videoId: r.video_id,
+          title: r.title,
+          channel: r.channel,
+          publishedAt: r.published_at,
+          tags: r.tags || [],
+          summary: r.summary,
+          keyPoints: r.key_points,
+        }));
+        setVideos(mapped);
+      }
+      setDbReady(true);
     }
+    loadFromSupabase().catch(() => {
+      // Supabase not configured yet — fall back silently
+      setDbReady(false);
+    });
   }, []);
-
-  useEffect(() => {
-    if(videos.length > 0) {
-      localStorage.setItem('ytdigest-history', JSON.stringify(videos));
-    }
-  }, [videos]);
 
   const addChannel = () => {
     if (!newName.trim() || !newId.trim()) return;
@@ -252,17 +265,46 @@ export default function App() {
   const handleRun = async () => {
     if (channels.length === 0) return;
     setRunning(true);
-    setVideos([]);
+    // Do NOT clear videos — results accumulate (append-only)
     setTagFilter("All");
     setChannelFilter("All");
 
+    const newVideos = [];
+
     try {
+      // Persist updated channel list to Supabase
+      if (dbReady) {
+        await sbFetch('channels', 'POST', channels.map(c => ({ id: c.id, name: c.name })));
+      }
+
       await runAgent({
         channels,
         since,
         onStatus: (msg, type) => { setStatus(msg); setStatusType(type); },
-        onVideo: (v) => setVideos(prev => [...prev, v]),
+        onVideo: (v) => {
+          newVideos.push(v);
+          setVideos(prev => {
+            const exists = prev.find(p => p.videoId === v.videoId && p.channel === v.channel);
+            return exists ? prev : [...prev, v];
+          });
+        },
       });
+
+      // Persist new results to Supabase (append-only upsert)
+      if (dbReady && newVideos.length > 0) {
+        const rows = newVideos.map(v => ({
+          id: v.id,
+          video_id: v.videoId,
+          title: v.title,
+          channel: v.channel,
+          published_at: v.publishedAt,
+          tags: v.tags,
+          summary: v.summary,
+          key_points: v.keyPoints,
+        }));
+        await sbFetch('results', 'POST', rows);
+      }
+
       setStatusType("success");
     } catch (err) {
       setStatus(`Error: ${err.message}`);
@@ -327,7 +369,10 @@ export default function App() {
             <option>3 days</option>
             <option>7 days</option>
             <option>1 month</option>
+            <option>6 months</option>
             <option>1 year</option>
+            <option>2 years</option>
+            <option>5 years</option>
             <option>All time</option>
           </select>
 

@@ -121,6 +121,25 @@ function videoHasTag(video, tag) {
   return normalizeTags(video.tags).some((x) => x === t);
 }
 
+/** Align saved channel names with YouTube `channelTitle` (often has a leading "|"). */
+function normalizeChannelLabel(s) {
+  return String(s ?? "")
+    .replace(/^\|+/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Stable key for list rows and expand/load UI. AI/DB `id` can collide or be missing across items.
+ */
+function videoRowKey(v) {
+  if (v?.videoId && v.channel != null && String(v.channel).trim() !== "") {
+    return `${v.videoId}::${v.channel}`;
+  }
+  return String(v?.id ?? "");
+}
+
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -955,7 +974,7 @@ export default function App() {
   const fetchDescriptionIfNeeded = async (v) => {
     const cached = (v.description || descriptionByVideoId[v.videoId] || "").trim();
     if (cached || !v.videoId) return;
-    setLoadingDescId(v.id);
+    setLoadingDescId(videoRowKey(v));
     try {
       const res = await fetch(`/api/youtube?videoId=${encodeURIComponent(v.videoId)}`);
       const data = await res.json();
@@ -1075,11 +1094,15 @@ export default function App() {
     return allTags.filter((t) => t === "All" || t.toLowerCase().includes(q));
   }, [allTags, tagQuery]);
 
-  /** When null, show videos from every channel. When a Set, restrict to those channel names. */
+  /** When null, show videos from every channel. When a Set, restrict to normalized channel labels. */
   const visibleChannelNames = useMemo(() => {
     if (channels.length === 0) return null;
     if (visibleChannelIds.size === channels.length) return null;
-    return new Set(channels.filter((c) => visibleChannelIds.has(c.id)).map((c) => c.name));
+    return new Set(
+      channels
+        .filter((c) => visibleChannelIds.has(c.id))
+        .map((c) => normalizeChannelLabel(c.name))
+    );
   }, [channels, visibleChannelIds]);
 
   const digestAllOn =
@@ -1101,7 +1124,9 @@ export default function App() {
       if (visibleChannelNames.size === 0) {
         list = [];
       } else {
-        list = list.filter((v) => visibleChannelNames.has(v.channel));
+        list = list.filter((v) =>
+          visibleChannelNames.has(normalizeChannelLabel(v.channel))
+        );
       }
     }
     list.sort((a, b) => {
@@ -1140,14 +1165,16 @@ export default function App() {
   }, [filtered]);
 
   const toggleDesc = async (v) => {
-    const willOpen = !openDesc[v.id];
-    setOpenDesc((o) => ({ ...o, [v.id]: willOpen }));
+    const k = videoRowKey(v);
+    const willOpen = !openDesc[k];
+    setOpenDesc((o) => ({ ...o, [k]: willOpen }));
     if (willOpen) await fetchDescriptionIfNeeded(v);
   };
 
   const toggleLinks = async (v) => {
-    const willOpen = !openLinks[v.id];
-    setOpenLinks((o) => ({ ...o, [v.id]: willOpen }));
+    const k = videoRowKey(v);
+    const willOpen = !openLinks[k];
+    setOpenLinks((o) => ({ ...o, [k]: willOpen }));
     if (willOpen) await fetchDescriptionIfNeeded(v);
   };
 
@@ -1621,6 +1648,7 @@ export default function App() {
 
             <div className={`digest-scroll ${viewMode === "grid" ? "digest-grid-view" : "digest-list"}`}>
               {filtered.map((v) => {
+                const rowKey = videoRowKey(v);
                 const mergedDesc = (
                   v.description ||
                   descriptionByVideoId[v.videoId] ||
@@ -1635,7 +1663,7 @@ export default function App() {
                 const isGrid = viewMode === "grid";
                 return (
                   <article
-                    key={v.id}
+                    key={rowKey}
                     className={`video-card ${isGrid ? "video-card--grid" : ""}`}
                   >
                     <div className="card-top">
@@ -1728,7 +1756,7 @@ export default function App() {
                     {v.videoId && (
                       <div className="r-expand">
                         <button type="button" className="r-expand-btn" onClick={() => toggleDesc(v)}>
-                          <span className={`r-chevron ${openDesc[v.id] ? "open" : ""}`}>›</span>
+                          <span className={`r-chevron ${openDesc[rowKey] ? "open" : ""}`}>›</span>
                           <PretextLines
                             as="span"
                             text="Original description"
@@ -1738,7 +1766,7 @@ export default function App() {
                             style={{ display: "inline-block" }}
                           />
                         </button>
-                        {openDesc[v.id] && loadingDescId === v.id && !mergedDesc && (
+                        {openDesc[rowKey] && loadingDescId === rowKey && !mergedDesc && (
                           <div className="r-expand-body">
                             <PretextLines
                               text="Loading…"
@@ -1747,7 +1775,7 @@ export default function App() {
                             />
                           </div>
                         )}
-                        {openDesc[v.id] && mergedDesc && (
+                        {openDesc[rowKey] && mergedDesc && (
                           <div className="r-expand-body">
                             <PretextLines
                               text={mergedDesc}
@@ -1757,7 +1785,7 @@ export default function App() {
                             />
                           </div>
                         )}
-                        {openDesc[v.id] && !mergedDesc && loadingDescId !== v.id && (
+                        {openDesc[rowKey] && !mergedDesc && loadingDescId !== rowKey && (
                           <div className="r-expand-body" style={{ color: "var(--r-text-faint)" }}>
                             <PretextLines
                               text="No description available."
@@ -1772,7 +1800,7 @@ export default function App() {
                     {v.videoId && (
                       <div className="r-expand">
                         <button type="button" className="r-expand-btn" onClick={() => toggleLinks(v)}>
-                          <span className={`r-chevron ${openLinks[v.id] ? "open" : ""}`}>›</span>
+                          <span className={`r-chevron ${openLinks[rowKey] ? "open" : ""}`}>›</span>
                           <PretextLines
                             as="span"
                             text={`Links & downloads (${extraLinks.length})`}
@@ -1782,7 +1810,7 @@ export default function App() {
                             style={{ display: "inline-block" }}
                           />
                         </button>
-                        {openLinks[v.id] && (
+                        {openLinks[rowKey] && (
                           <div className="r-expand-body">
                             {extraLinks.length === 0 ? (
                               <p style={{ color: "var(--r-text-faint)", fontSize: 12 }}>
@@ -1791,7 +1819,7 @@ export default function App() {
                                   text={
                                     mergedDesc
                                       ? "No URLs found in the video description."
-                                      : loadingDescId === v.id
+                                      : loadingDescId === rowKey
                                         ? "Loading description…"
                                         : "Open to load the full description from YouTube, then links appear here."
                                   }

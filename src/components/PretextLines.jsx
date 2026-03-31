@@ -56,13 +56,13 @@ export function PretextLines({
     if (!el) return;
     const measure = () => {
       const w = el.offsetWidth;
-      if (w > 0) setMeasuredWidth(w);
+      setMeasuredWidth(w);
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [fixedWidth]);
+  }, [fixedWidth, text]);
 
   const layout = useMemo(() => {
     if (!prepared || width <= 0) return null;

@@ -13,7 +13,23 @@ export async function GET(req) {
   }
 
   try {
-    const listId = channelId.replace(/^UC/, 'UU');
+    // Dynamically fetch the absolute 'uploads' playlist ID for the channel
+    const channelUrl = `https://youtube.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`;
+    const channelRes = await fetch(channelUrl);
+    const channelData = await channelRes.json();
+    
+    if (!channelRes.ok) {
+      throw new Error(channelData.error?.message || 'Failed to validate channel');
+    }
+    if (!channelData.items || channelData.items.length === 0) {
+      throw new Error(`Channel ${channelId} could not be found.`);
+    }
+
+    const listId = channelData.items[0].contentDetails?.relatedPlaylists?.uploads;
+    if (!listId) {
+      throw new Error("No uploads playlist found for this channel.");
+    }
+
     let videos = [];
     let pageToken = '';
     

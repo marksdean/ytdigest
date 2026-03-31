@@ -1,48 +1,47 @@
 import { NextResponse } from 'next/server';
-import { parseStringPromise } from 'xml2js';
+import ytSearch from 'yt-search';
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const channelId = searchParams.get('channelId');
 
   if (!channelId) {
-    return NextResponse.json({ error: 'Missing channelId' }, { status: 400 });
+    return NextResponse.json({ error: 'channelId is required' }, { status: 400 });
   }
 
   try {
-    const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
-      next: { revalidate: 3600 } // Cache for 1 hour
-    });
+    const listId = channelId.replace(/^UC/, 'UU');
+    const playlist = await ytSearch({ listId }).catch(() => null);
 
-    if (!res.ok) {
-        return NextResponse.json({ error: 'Failed to fetch YouTube feed.' }, { status: res.status });
+    if (!playlist || !playlist.videos) {
+      return NextResponse.json({ videos: [] });
     }
 
-    const xmlText = await res.text();
-    const result = await parseStringPromise(xmlText);
-    
-    if (!result || !result.feed || !result.feed.entry) {
-        return NextResponse.json({ videos: [] });
+    // Process up to 100 videos maximum to restrict Vercel timeouts
+    const topVideos = playlist.videos.slice(0, 100);
+
+    // Chunk fetching dates to bypass YouTube rate limits
+    const detailed = [];
+    for (let i = 0; i < topVideos.length; i += 20) {
+      const chunk = topVideos.slice(i, i + 20);
+      const res = await Promise.all(chunk.map(v => ytSearch({ videoId: v.videoId }).catch(() => null)));
+      detailed.push(...res);
     }
 
-    // Get up to 15 recent videos per channel
-    const entries = result.feed.entry.slice(0, 15);
-    const authorName = result.feed.author?.[0]?.name?.[0] || 'Unknown Author';
-
-    const videos = entries.map(entry => {
+    const videos = topVideos.map((entry, index) => {
+      const d = detailed[index];
       return {
-        videoId: entry['yt:videoId']?.[0] || '',
-        title: entry.title?.[0] || 'Unknown Title',
-        author: authorName,
-        publishedAt: entry.published?.[0] || '',
-        description: entry['media:group']?.[0]?.['media:description']?.[0] || ''
+        videoId: entry.videoId,
+        title: entry.title,
+        author: entry.author?.name || playlist.title || 'Unknown Author',
+        publishedAt: d?.uploadDate ? new Date(d.uploadDate).toISOString() : new Date().toISOString(),
+        description: d?.description || entry.title,
       };
     });
 
     return NextResponse.json({ videos });
-
-  } catch (err) {
-    console.error('Error fetching YouTube RSS:', err);
-    return NextResponse.json({ error: 'Internal server error while fetching YouTube RSS' }, { status: 500 });
+  } catch (error) {
+    console.error('Error fetching channel feed:', error);
+    return NextResponse.json({ error: 'Failed to fetch videos' }, { status: 500 });
   }
 }

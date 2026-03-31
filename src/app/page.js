@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap');
@@ -100,7 +100,7 @@ const STYLES = `
 const INITIAL_CHANNELS = [
   { id: "UCVHFbw7woebIMSbnRN3IOlA", name: "Fireship" },
   { id: "UCBcRF18a7Qf58cCRy5xuWwQ", name: "Andrej Karpathy" },
-  { id: "UCLn-p0U5rD5q0EemikmX6_w", name: "The Keys Coach" }
+  { id: "UCfXgUVnR7UOhr08sT1zRq5A", name: "The Keys Coach" }
 ];
 
 async function runAgent({ channels, since, onStatus, onVideo }) {
@@ -142,12 +142,6 @@ async function runAgent({ channels, since, onStatus, onVideo }) {
     throw new Error(`No videos found matching the "${since}" timeframe.`);
   }
 
-  allVideos = allVideos.slice(0, 25);
-
-  const videoContext = allVideos.map((v, i) => 
-    `[Video ${i + 1}] ID: ${v.videoId} | Channel: ${v.author} | Title: ${v.title} | Published: ${v.publishedAt}\nDescription: ${v.description.substring(0, 350)}...`
-  ).join("\n\n");
-
   const systemPrompt = `You are a dynamic YouTube tech and education digest agent. Your job is to analyze real recent YouTube videos and summarize them.
 
 Given a list of real video metadata, return a JSON array of video analysis objects. Do not hallucinate videos. Simply analyze the provided videos.
@@ -164,49 +158,53 @@ Each object must have:
 
 Return ONLY a valid JSON array, no other text.`;
 
-  const userPrompt = `Here are the latest videos fetched from the selected channels:\n\n${videoContext}\n\nAnalyze them and generate the video digest JSON array now.`;
+  let processedVideos = [];
+  const chunkSize = 20;
 
-  onStatus("Agent reading descriptions & analyzing tags...", "running");
+  for (let i = 0; i < allVideos.length; i += chunkSize) {
+    const chunk = allVideos.slice(i, i + chunkSize);
+    onStatus(`Agent analyzing batch ${Math.ceil(i/chunkSize)+1}/${Math.ceil(allVideos.length/chunkSize)}...`, "running");
 
-  const res = await fetch("/api/anthropic", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 3000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-  });
+    const videoContext = chunk.map((v, idx) => 
+      `[Video ${idx + 1}] ID: ${v.videoId} | Channel: ${v.author} | Title: ${v.title} | Published: ${v.publishedAt}\nDescription: ${v.description.substring(0, 350)}...`
+    ).join("\n\n");
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error || `API error ${res.status}`);
+    const userPrompt = `Here are the latest videos fetched from the selected channels:\n\n${videoContext}\n\nAnalyze them and generate the video digest JSON array now.`;
+
+    const res = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 3000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `API error ${res.status}`);
+    }
+
+    const data = await res.json();
+    const text = data.content?.find(b => b.type === "text")?.text || data.text || "";
+
+    try {
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) {
+        processedVideos.push(...parsed);
+        for (const v of parsed) {
+          onVideo(v);
+        }
+      }
+    } catch {
+      console.error("Could not parse batch");
+    }
   }
 
-  const data = await res.json();
-  const text = data.content?.find(b => b.type === "text")?.text || data.text || "";
-
-  onStatus("Parsing agent analysis...", "running");
-
-  let videos;
-  try {
-    const clean = text.replace(/```json|```/g, "").trim();
-    videos = JSON.parse(clean);
-  } catch {
-    throw new Error("Could not parse agent response as JSON. Try again.");
-  }
-
-  if (!Array.isArray(videos)) throw new Error("Expected array from agent");
-
-  for (const v of videos) {
-    onVideo(v);
-    await new Promise(r => setTimeout(r, 180));
-  }
-
-  onStatus(`Done — ${videos.length} videos analyzed & tagged`, "success");
+  onStatus(`Done — ${processedVideos.length} videos analyzed & tagged`, "success");
 }
 
 export default function App() {
@@ -218,7 +216,26 @@ export default function App() {
   const [status, setStatus] = useState(null);
   const [statusType, setStatusType] = useState("running");
   const [videos, setVideos] = useState([]);
-  const [filter, setFilter] = useState("All");
+  
+  // Sorting & Filtering
+  const [tagFilter, setTagFilter] = useState("All");
+  const [channelFilter, setChannelFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Date (Newest)");
+
+  useEffect(() => {
+    const saved = localStorage.getItem('ytdigest-history');
+    if (saved) {
+      try {
+        setVideos(JSON.parse(saved));
+      } catch(e){}
+    }
+  }, []);
+
+  useEffect(() => {
+    if(videos.length > 0) {
+      localStorage.setItem('ytdigest-history', JSON.stringify(videos));
+    }
+  }, [videos]);
 
   const addChannel = () => {
     if (!newName.trim() || !newId.trim()) return;
@@ -232,7 +249,8 @@ export default function App() {
     if (channels.length === 0) return;
     setRunning(true);
     setVideos([]);
-    setFilter("All");
+    setTagFilter("All");
+    setChannelFilter("All");
 
     try {
       await runAgent({
@@ -251,7 +269,24 @@ export default function App() {
   };
 
   const allTags = ["All", ...new Set(videos.flatMap(v => v.tags || []))].filter(Boolean);
-  const filtered = filter === "All" ? videos : videos.filter(v => v.tags?.includes(filter));
+  const allChannels = ["All", ...new Set(videos.map(v => v.channel))].filter(Boolean);
+
+  let filtered = tagFilter === "All" ? videos : videos.filter(v => v.tags?.includes(tagFilter));
+  
+  if (channelFilter !== "All") {
+    filtered = filtered.filter(v => v.channel === channelFilter);
+  }
+
+  filtered.sort((a, b) => {
+    if (sortBy.includes("Date")) {
+      const d1 = new Date(a.publishedAt || 0).getTime();
+      const d2 = new Date(b.publishedAt || 0).getTime();
+      return sortBy === "Date (Newest)" ? d2 - d1 : d1 - d2;
+    }
+    if (sortBy === "Author (A-Z)") return a.channel.localeCompare(b.channel);
+    if (sortBy === "Author (Z-A)") return b.channel.localeCompare(a.channel);
+    return 0;
+  });
 
   return (
     <>
@@ -291,6 +326,26 @@ export default function App() {
             <option>1 year</option>
             <option>All time</option>
           </select>
+
+          {videos.length > 0 && (
+            <>
+              <div className="section-label" style={{ margin: "0 0 0 10px", whiteSpace: "nowrap" }}>Channel</div>
+              <select value={channelFilter} onChange={e => setChannelFilter(e.target.value)}
+                style={{ height: 36, padding: "0 10px", background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: "var(--border-radius-md)", fontSize: 13, color: "var(--color-text-primary)", outline: "none", minWidth: 120 }}>
+                {allChannels.map(c => <option key={c}>{c}</option>)}
+              </select>
+
+              <div className="section-label" style={{ margin: "0 0 0 10px", whiteSpace: "nowrap" }}>Sort By</div>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+                style={{ height: 36, padding: "0 10px", background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: "var(--border-radius-md)", fontSize: 13, color: "var(--color-text-primary)", outline: "none", minWidth: 120 }}>
+                <option>Date (Newest)</option>
+                <option>Date (Oldest)</option>
+                <option>Author (A-Z)</option>
+                <option>Author (Z-A)</option>
+              </select>
+            </>
+          )}
+
           <div style={{ flex: 1 }} />
           <button
             className="btn primary"
@@ -314,8 +369,8 @@ export default function App() {
               {allTags.map(tag => (
                 <button 
                   key={tag} 
-                  className={`filter-chip ${filter === tag ? "active" : ""}`} 
-                  onClick={() => setFilter(tag)}
+                  className={`filter-chip ${tagFilter === tag ? "active" : ""}`} 
+                  onClick={() => setTagFilter(tag)}
                 >
                   {tag}
                   {tag !== "All" && <span style={{ marginLeft: 6, opacity: 0.6 }}>({videos.filter(v => v.tags?.includes(tag)).length})</span>}

@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 
 /** Decode `&#39;`, `&amp;`, etc. from API/LLM titles and text. */
 function decodeHtmlEntities(raw) {
@@ -1049,8 +1056,21 @@ const STYLES = `
     justify-content: center;
   }
 
-  .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--r-text-muted); }
-  .empty-state p { font-size: 13px; margin-top: 8px; max-width: 38ch; margin-left: auto; margin-right: auto; line-height: 1.55; }
+  .empty-state {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--r-text-muted);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .empty-state p {
+    font-size: 13px;
+    margin: 0;
+    line-height: 1.55;
+    white-space: nowrap;
+    display: inline-block;
+    max-width: none;
+  }
   .big-icon { display: none; }
 
   @media print {
@@ -1255,6 +1275,9 @@ export default function App() {
   const [descriptionByVideoId, setDescriptionByVideoId] = useState({});
   const [loadingDescId, setLoadingDescId] = useState(null);
   const prevChannelIdsRef = useRef(new Set());
+  /** When true, do not auto-fill digest/view checkboxes (user chose None or toggled). */
+  const digestSelectionTouchedRef = useRef(false);
+  const viewSelectionTouchedRef = useRef(false);
   const digestAbortRef = useRef(null);
   /** Re-run YouTube search + videos.list for every item (higher quota; ignores skip list). */
   const [forceYoutubeRefresh, setForceYoutubeRefresh] = useState(false);
@@ -1293,6 +1316,21 @@ export default function App() {
     prevChannelIdsRef.current = ids;
   }, [channels]);
 
+  /**
+   * Recover from empty digest/view selection when channels exist (race with Supabase load
+   * or merge effect). Does not override after the user explicitly uses All/None/toggles.
+   */
+  useLayoutEffect(() => {
+    if (channels.length === 0) return;
+    const all = new Set(channels.map((c) => c.id));
+    if (!digestSelectionTouchedRef.current && digestChannelIds.size === 0) {
+      setDigestChannelIds(all);
+    }
+    if (!viewSelectionTouchedRef.current && visibleChannelIds.size === 0) {
+      setVisibleChannelIds(all);
+    }
+  }, [channels, digestChannelIds.size, visibleChannelIds.size]);
+
   // Load persisted channels and results from Supabase on mount
   useEffect(() => {
     async function loadFromSupabase() {
@@ -1302,8 +1340,9 @@ export default function App() {
       ]);
       if (chRes?.channels) {
         const list = chRes.channels.map((c) => ({ id: c.id, name: c.name }));
-        setChannels(list);
         const ids = new Set(list.map((c) => c.id));
+        prevChannelIdsRef.current = ids;
+        setChannels(list);
         setDigestChannelIds(ids);
         setVisibleChannelIds(ids);
       }
@@ -1391,6 +1430,8 @@ export default function App() {
       if (!res.ok) throw new Error(j.error || res.statusText);
       setChannels([]);
       setVideos([]);
+      digestSelectionTouchedRef.current = false;
+      viewSelectionTouchedRef.current = false;
       setPurgeSecretInput("");
       setTagFilter("All");
       setStarredOnly(false);
@@ -1447,6 +1488,7 @@ export default function App() {
   };
 
   const toggleDigestChannel = (id) => {
+    digestSelectionTouchedRef.current = true;
     setDigestChannelIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1456,14 +1498,17 @@ export default function App() {
   };
 
   const selectAllDigest = () => {
+    digestSelectionTouchedRef.current = true;
     setDigestChannelIds(new Set(channels.map((c) => c.id)));
   };
 
   const clearDigestSelection = () => {
+    digestSelectionTouchedRef.current = true;
     setDigestChannelIds(new Set());
   };
 
   const toggleVisibleChannel = (id) => {
+    viewSelectionTouchedRef.current = true;
     setVisibleChannelIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1473,10 +1518,12 @@ export default function App() {
   };
 
   const selectAllVisible = () => {
+    viewSelectionTouchedRef.current = true;
     setVisibleChannelIds(new Set(channels.map((c) => c.id)));
   };
 
   const clearVisibleSelection = () => {
+    viewSelectionTouchedRef.current = true;
     setVisibleChannelIds(new Set());
   };
 
@@ -2556,13 +2603,7 @@ export default function App() {
         {!running && videos.length === 0 && !status && (
           <div className="empty-state">
             <p>
-              <PretextLines
-                as="span"
-                text="Add channels, run digest. Results appear below; switch layout between grid and list in the toolbar."
-                font={PT.emptyState}
-                lineHeightPx={PT_LH.emptyState}
-                style={{ display: "block" }}
-              />
+              Add channels, run digest. Results appear below; switch layout between grid and list in the toolbar.
             </p>
           </div>
         )}

@@ -44,6 +44,36 @@ function extractLinksFromText(text) {
   return out;
 }
 
+/** Turn bare URLs in description text into clickable links (preserves newlines via parent pre-wrap). */
+function linkifyDescription(text) {
+  const s = text == null ? "" : String(text);
+  if (!s) return null;
+  const re = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
+  const out = [];
+  let last = 0;
+  let m;
+  let ki = 0;
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) out.push(s.slice(last, m.index));
+    const raw = m[0];
+    let href = raw.replace(/[.,;:)]+$/, "").replace(/\]+$/, "");
+    if (href.startsWith("www.")) href = `https://${href}`;
+    out.push(
+      <a
+        key={`ld-${ki++}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {raw}
+      </a>
+    );
+    last = m.index + raw.length;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+
 /**
  * Supabase/Postgres may return `tags` as a JSON array, a stringified JSON array, or (if mis-typed) a plain string.
  * Never use String.prototype.includes on raw `tags` — it does substring matching on the whole blob and breaks filters
@@ -381,12 +411,21 @@ const STYLES = `
 
   .toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 10px 16px;
     margin-bottom: 1rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--r-line) transparent;
   }
-  .toolbar-grow { flex: 1; min-width: 8px; }
+  .toolbar::-webkit-scrollbar { height: 6px; }
+  .toolbar::-webkit-scrollbar-thumb { background: var(--r-line); border-radius: 3px; }
+  .toolbar > *:not(.toolbar-grow) { flex-shrink: 0; }
+  .toolbar-grow { flex: 1 1 8px; min-width: 8px; }
 
   .r-select {
     height: 36px;
@@ -638,6 +677,13 @@ const STYLES = `
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .r-expand-body.desc-linkified a {
+    color: var(--r-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    word-break: break-all;
+  }
+  .r-expand-body.desc-linkified a:hover { opacity: 0.75; }
   .link-list { list-style: none; }
   .link-list li { margin-bottom: 8px; }
   .link-list a {
@@ -1776,13 +1822,8 @@ export default function App() {
                           </div>
                         )}
                         {openDesc[rowKey] && mergedDesc && (
-                          <div className="r-expand-body">
-                            <PretextLines
-                              text={mergedDesc}
-                              font={PT.expandBody}
-                              lineHeightPx={PT_LH.expandBody}
-                              whiteSpace="pre-wrap"
-                            />
+                          <div className="r-expand-body desc-linkified">
+                            {linkifyDescription(mergedDesc)}
                           </div>
                         )}
                         {openDesc[rowKey] && !mergedDesc && loadingDescId !== rowKey && (

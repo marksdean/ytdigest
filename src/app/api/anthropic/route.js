@@ -4,12 +4,11 @@ export async function POST(req) {
   try {
     const body = await req.json();
     
-    // Check headers for client-supplied key, fallback to server environment variable
-    const apiKey = req.headers.get("x-api-key") || process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "No Anthropic API key provided. Please supply one in the UI or set ANTHROPIC_API_KEY in the server environment." }, 
+        { error: "No Anthropic API key found. Please define ANTHROPIC_API_KEY in your server environment." }, 
         { status: 400 }
       );
     }

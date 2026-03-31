@@ -13,45 +13,30 @@ export async function GET(req) {
     return NextResponse.json({ error: 'YOUTUBE_API_KEY missing from environment variables' }, { status: 500 });
   }
 
-  // Map timeframe to a publishedAfter date for YouTube API
+  // Map timeframe to publishedAfter for YouTube API (server-side filtering)
   const now = new Date();
   let publishedAfter = null;
-  if (since === '24 hours') {
-    publishedAfter = new Date(now - 1 * 24 * 60 * 60 * 1000);
-  } else if (since === '3 days') {
-    publishedAfter = new Date(now - 3 * 24 * 60 * 60 * 1000);
-  } else if (since === '7 days') {
-    publishedAfter = new Date(now - 7 * 24 * 60 * 60 * 1000);
-  } else if (since === '1 month') {
-    publishedAfter = new Date(now - 30 * 24 * 60 * 60 * 1000);
-  } else if (since === '6 months') {
-    publishedAfter = new Date(now - 182 * 24 * 60 * 60 * 1000);
-  } else if (since === '1 year') {
-    publishedAfter = new Date(now - 365 * 24 * 60 * 60 * 1000);
-  } else if (since === '2 years') {
-    publishedAfter = new Date(now - 730 * 24 * 60 * 60 * 1000);
-  } else if (since === '5 years') {
-    publishedAfter = new Date(now - 1825 * 24 * 60 * 60 * 1000);
+  const TIMEFRAMES = {
+    '24 hours': 1, '3 days': 3, '7 days': 7, '1 month': 30,
+    '6 months': 182, '1 year': 365, '2 years': 730, '5 years': 1825,
+  };
+  if (TIMEFRAMES[since]) {
+    publishedAfter = new Date(now - TIMEFRAMES[since] * 24 * 60 * 60 * 1000);
   }
-  // 'All time' => no publishedAfter filter
 
   try {
     let videos = [];
     let pageToken = '';
 
-    // Paginate through the chronological Search API
-    // Each page = 50 videos. Max 10 pages = up to 500 videos.
-    for (let i = 0; i < 10; i++) {
+    // Max 3 pages = 150 videos per channel to stay within Vercel's 10s timeout.
+    // The publishedAfter filter ensures YouTube only returns relevant date-ranged videos,
+    // so 150 per channel is sufficient for any timeframe up to 2 years.
+    for (let i = 0; i < 3; i++) {
       let url = `https://youtube.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}`;
-      if (publishedAfter) {
-        url += `&publishedAfter=${publishedAfter.toISOString()}`;
-      }
-      if (pageToken) {
-        url += `&pageToken=${pageToken}`;
-      }
+      if (publishedAfter) url += `&publishedAfter=${publishedAfter.toISOString()}`;
+      if (pageToken) url += `&pageToken=${pageToken}`;
 
       const res = await fetch(url);
-
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error?.message || 'YouTube API error');
@@ -60,7 +45,7 @@ export async function GET(req) {
       const data = await res.json();
       if (!data.items || data.items.length === 0) break;
 
-      const mapped = data.items.map(item => ({
+      videos.push(...data.items.map(item => ({
         videoId: item.id?.videoId,
         title: item.snippet?.title,
         author: item.snippet?.channelTitle || 'Unknown Author',
@@ -68,9 +53,7 @@ export async function GET(req) {
           ? new Date(item.snippet.publishedAt).toISOString()
           : new Date().toISOString(),
         description: item.snippet?.description || '',
-      }));
-
-      videos.push(...mapped);
+      })));
 
       pageToken = data.nextPageToken;
       if (!pageToken) break;

@@ -15,9 +15,7 @@ export async function GET(req) {
   const resource = searchParams.get('resource');
 
   let supabase;
-  try {
-    supabase = getClient();
-  } catch (e) {
+  try { supabase = getClient(); } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 503 });
   }
 
@@ -36,14 +34,12 @@ export async function GET(req) {
     return NextResponse.json({ results: data });
   }
 
-  return NextResponse.json({ error: 'resource param required (channels or results)' }, { status: 400 });
+  return NextResponse.json({ error: 'resource param required' }, { status: 400 });
 }
 
 export async function POST(req) {
   let supabase;
-  try {
-    supabase = getClient();
-  } catch (e) {
+  try { supabase = getClient(); } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 503 });
   }
 
@@ -51,7 +47,7 @@ export async function POST(req) {
   const { resource, data } = body;
 
   if (resource === 'channels') {
-    // Replace channel list
+    // Replace entire channel list
     await supabase.from('channels').delete().neq('id', '___placeholder___');
     const { error } = await supabase.from('channels').insert(data);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,7 +55,7 @@ export async function POST(req) {
   }
 
   if (resource === 'results') {
-    // Append-only: upsert by video_id + channel to avoid duplicates
+    // Append-only upsert, keyed on (video_id, channel)
     const { error } = await supabase
       .from('digest_results')
       .upsert(data, { onConflict: 'video_id,channel' });
@@ -68,4 +64,28 @@ export async function POST(req) {
   }
 
   return NextResponse.json({ error: 'invalid resource' }, { status: 400 });
+}
+
+export async function DELETE(req) {
+  let supabase;
+  try { supabase = getClient(); } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 503 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const resource = searchParams.get('resource');
+  const videoId = searchParams.get('videoId');
+  const channel = searchParams.get('channel');
+
+  if (resource === 'results' && videoId && channel) {
+    const { error } = await supabase
+      .from('digest_results')
+      .delete()
+      .eq('video_id', videoId)
+      .eq('channel', channel);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json({ error: 'missing resource, videoId, or channel params' }, { status: 400 });
 }

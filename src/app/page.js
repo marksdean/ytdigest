@@ -104,30 +104,32 @@ const INITIAL_CHANNELS = [
 ];
 
 async function runAgent({ channels, since, onStatus, onVideo }) {
-  onStatus(`Fetching videos from YouTube (${since})...`, "running");
+  onStatus(`Fetching videos from ${channels.length} channel(s) in parallel...`, "running");
+
+  // Fetch all channels in parallel to avoid Vercel timeout
+  const results = await Promise.allSettled(
+    channels.map(c =>
+      fetch(`/api/youtube?channelId=${c.id}&since=${encodeURIComponent(since)}`)
+        .then(res => {
+          if (!res.ok) return res.json().then(e => { throw new Error(e.error || `HTTP ${res.status}`); });
+          return res.json();
+        })
+    )
+  );
 
   let allVideos = [];
-  for (const c of channels) {
-    onStatus(`Fetching videos from ${c.name}...`, "running");
-    try {
-      const res = await fetch(`/api/youtube?channelId=${c.id}&since=${encodeURIComponent(since)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.videos) {
-          allVideos.push(...data.videos);
-        }
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `YouTube API failed with status ${res.status}`);
-      }
-    } catch (err) {
-      console.error('Failed to fetch for', c.name, err);
-      throw err;
+  const errors = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value?.videos) {
+      allVideos.push(...r.value.videos);
+    } else if (r.status === 'rejected') {
+      errors.push(`${channels[i].name}: ${r.reason?.message}`);
     }
-  }
+  });
 
   if (allVideos.length === 0) {
-    throw new Error(`No videos found for the "${since}" timeframe. The channels may not have posted recently.`);
+    const detail = errors.length ? ` Errors: ${errors.join('; ')}` : '';
+    throw new Error(`No videos found for "${since}" timeframe.${detail}`);
   }
 
   const systemPrompt = `You are a dynamic YouTube tech and education digest agent. Your job is to analyze real recent YouTube videos and summarize them.
@@ -260,7 +262,35 @@ export default function App() {
     setNewName(""); setNewId("");
   };
 
-  const removeChannel = (id) => setChannels(c => c.filter(ch => ch.id !== id));
+  const removeChannel = async (id) => {
+    const updated = channels.filter(ch => ch.id !== id);
+    setChannels(updated);
+    if (dbReady) {
+      await sbFetch('channels', 'POST', updated.map(c => ({ id: c.id, name: c.name })));
+    }
+  };
+
+  const deleteResult = async (videoId, channel) => {
+    setVideos(prev => prev.filter(v => !(v.videoId === videoId && v.channel === channel)));
+    if (dbReady) {
+      await fetch(`/api/supabase?resource=results&videoId=${encodeURIComponent(videoId)}&channel=${encodeURIComponent(channel)}`, { method: 'DELETE' });
+    }
+  };
+
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(videos, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `ytdigest-${new Date().toISOString().slice(0,10)}.json`; a.click();
+  };
+
+  const exportMarkdown = () => {
+    const md = videos.map(v =>
+      `## ${v.title}\n**Channel:** ${v.channel}  \n**Published:** ${new Date(v.publishedAt).toLocaleDateString()}  \n**Tags:** ${(v.tags||[]).join(', ')}  \n**Watch:** https://www.youtube.com/watch?v=${v.videoId}\n\n${v.summary}\n`
+    ).join('\n---\n\n');
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `ytdigest-${new Date().toISOString().slice(0,10)}.md`; a.click();
+  };
 
   const handleRun = async () => {
     if (channels.length === 0) return;
@@ -396,6 +426,12 @@ export default function App() {
           )}
 
           <div style={{ flex: 1 }} />
+          {videos.length > 0 && (
+            <>
+              <button className="btn" onClick={exportJSON} title="Export as JSON">⬇ JSON</button>
+              <button className="btn" onClick={exportMarkdown} title="Export as Markdown">⬇ MD</button>
+            </>
+          )}
           <button
             className="btn primary"
             onClick={handleRun}
@@ -458,7 +494,14 @@ export default function App() {
                     >
                       Watch on YouTube →
                     </a>
-                    <span className="key-points">{v.keyPoints} key points</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="key-points">{v.keyPoints} key points</span>
+                      <button
+                        onClick={() => deleteResult(v.videoId, v.channel)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+                        title="Delete this result"
+                      >×</button>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -147,6 +147,35 @@ function normalizeTags(raw) {
   return [];
 }
 
+/** Tags from #hashtags in video description (supports phrases like #piano lessons). */
+function extractHashtagsFromText(text) {
+  if (text == null || typeof text !== "string") return [];
+  const out = [];
+  const re = /#([^\s#]+(?:\s+[^\s#]+)*)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const t = m[1].trim().replace(/\s+/g, " ");
+    if (t.length > 0 && t.length <= 120) out.push(t);
+  }
+  return [...new Set(out)];
+}
+
+/** Dedupe by case-insensitive key; preserve first-seen casing. */
+function mergeTagArrays(...lists) {
+  const seen = new Map();
+  for (const list of lists) {
+    if (list == null) continue;
+    const arr = Array.isArray(list) ? list : [list];
+    for (const raw of arr) {
+      const s = String(raw).trim();
+      if (!s) continue;
+      const k = s.toLowerCase();
+      if (!seen.has(k)) seen.set(k, s);
+    }
+  }
+  return [...seen.values()];
+}
+
 function videoHasTag(video, tag) {
   const t = String(tag).trim();
   if (!t) return false;
@@ -230,6 +259,31 @@ function parseChannelLookup(raw) {
   return { param: s, isUcId: /^UC[\w-]{22}$/.test(s) };
 }
 
+function ChannelAvatar({ url, name }) {
+  const [failed, setFailed] = useState(false);
+  const initial = (name || "?").trim().charAt(0) || "?";
+  if (!url || failed) {
+    return (
+      <span className="channel-avatar channel-avatar--placeholder" aria-hidden>
+        {initial}
+      </span>
+    );
+  }
+  return (
+    <img
+      className="channel-avatar"
+      src={url}
+      alt=""
+      width={32}
+      height={32}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 const STYLES = `
   /* Design intent: Dieter Rams’ ten principles for good design — see
      https://uxdesign.cc/dieter-rams-and-ten-principles-for-good-design-61cc32bcd6e6
@@ -253,17 +307,17 @@ const STYLES = `
     --r-sand: #C09C6F;
     --r-earth: #5F503E;
     /* Interactive accent / “selected” (buttons, chips, checkboxes) */
-    --r-accent: #ed8008;
-    --r-accent-hover: #d97300;
+    --r-accent: #6b6e73;
+    --r-accent-hover: #55585c;
     --r-run: #736b1e;
     --r-run-hover: #5e5818;
     --r-on-run: #ffffff;
     --r-run-arrow: #ffffff;
     --r-cancel: #bf1b1b;
     --r-cancel-hover: #9f1616;
-    --r-selected: #ed8008;
+    --r-selected: #6b6e73;
     --r-on-selected: #ffffff;
-    --r-accent-warm: #BF7C2A;
+    --r-accent-warm: #5a5d62;
     --r-on-dark: #E1E4E1;
     --r-on-accent: #F2F1EC;
     --r-radius: 2px;
@@ -1314,7 +1368,7 @@ Each object must have:
 - title: string (must match the input title exactly; use plain Unicode text, never HTML entities like &#39; for apostrophes)
 - channel: string (must match the input channel/author exactly)
 - publishedAt: string (must match the input published date)
-- tags: array of strings. Generate 2 to 4 highly specific fine-grained subject tags based on the topic (e.g. "music theory", "chords", "react", "testing", "ai models"). Do not use broad terms like "General".
+- tags: array of strings. Generate 2 to 4 highly specific fine-grained subject tags based on the topic (e.g. "music theory", "chords", "react", "testing", "ai models"). Do not use broad terms like "General". Hashtags in the video description (e.g. #piano) are merged into tags automatically on the client—you may still output subject tags.
 - summary: string (2-3 concise sentence summary of what the video covers based on its description)
 - keyPoints: number (estimated number of key takeaways, 3-6)
 
@@ -1361,10 +1415,16 @@ Return ONLY a valid JSON array, no other text.`;
         const byVideoId = new Map(chunk.map((x) => [x.videoId, x]));
         for (const v of parsed) {
           const src = byVideoId.get(v.videoId);
+          const desc = src?.description ?? "";
+          const tagsMerged = mergeTagArrays(
+            Array.isArray(v.tags) ? v.tags : [],
+            extractHashtagsFromText(desc)
+          );
           const enriched = {
             ...v,
             title: decodeHtmlEntities(v.title ?? ""),
-            description: src?.description ?? "",
+            description: desc,
+            tags: tagsMerged,
             channelId: src?.channelId ?? null,
             channel: decodeHtmlEntities(
               v.channel || src?.author || v.channel || ""
@@ -1591,7 +1651,10 @@ export default function App() {
             channel: decodeHtmlEntities(r.channel),
             channelId: r.channel_id ?? null,
             publishedAt: r.published_at,
-            tags: normalizeTags(r.tags),
+            tags: mergeTagArrays(
+              normalizeTags(r.tags),
+              extractHashtagsFromText(decodeHtmlEntities(r.description ?? ""))
+            ),
             summary: r.summary,
             keyPoints: r.key_points,
             description: r.description ?? "",
@@ -2197,132 +2260,50 @@ export default function App() {
                   <tr>
                     <th scope="col" className="ch-th-cb">
                       <div className="ch-th-stack">
-                        <span className="ch-th-title">
-                          <PretextLines
-                            as="span"
-                            text="Digest"
-                            font={PT.thTitle}
-                            lineHeightPx={PT_LH.thTitle}
-                            fixedWidth={96}
-                            style={{ display: "inline-block" }}
-                          />
-                        </span>
-                        <span className="ch-th-hint">
-                          <PretextLines
-                            as="span"
-                            text="Include in next run"
-                            font={PT.thHint}
-                            lineHeightPx={PT_LH.thHint}
-                            fixedWidth={96}
-                            style={{ display: "inline-block" }}
-                          />
-                        </span>
+                        <span className="ch-th-title">Digest</span>
+                        <span className="ch-th-hint">Include in next run</span>
                         <div className="ch-th-bulk">
                           <button
                             type="button"
                             className={`btn-text ${digestAllOn ? "is-on" : ""}`}
                             onClick={selectAllDigest}
                           >
-                            <PretextLines
-                              as="span"
-                              text="All"
-                              font={PT.btnText}
-                              lineHeightPx={PT_LH.btnText}
-                              fixedWidth={40}
-                              style={{ display: "inline-block" }}
-                            />
+                            All
                           </button>
                           <button
                             type="button"
                             className={`btn-text ${digestNoneOn ? "is-on" : ""}`}
                             onClick={clearDigestSelection}
                           >
-                            <PretextLines
-                              as="span"
-                              text="None"
-                              font={PT.btnText}
-                              lineHeightPx={PT_LH.btnText}
-                              fixedWidth={44}
-                              style={{ display: "inline-block" }}
-                            />
+                            None
                           </button>
                         </div>
                       </div>
                     </th>
                     <th scope="col" className="ch-th-cb">
                       <div className="ch-th-stack">
-                        <span className="ch-th-title">
-                          <PretextLines
-                            as="span"
-                            text="View"
-                            font={PT.thTitle}
-                            lineHeightPx={PT_LH.thTitle}
-                            fixedWidth={96}
-                            style={{ display: "inline-block" }}
-                          />
-                        </span>
-                        <span className="ch-th-hint">
-                          <PretextLines
-                            as="span"
-                            text="Show in results"
-                            font={PT.thHint}
-                            lineHeightPx={PT_LH.thHint}
-                            fixedWidth={96}
-                            style={{ display: "inline-block" }}
-                          />
-                        </span>
+                        <span className="ch-th-title">View</span>
+                        <span className="ch-th-hint">Show in results</span>
                         <div className="ch-th-bulk">
                           <button
                             type="button"
                             className={`btn-text ${viewAllOn ? "is-on" : ""}`}
                             onClick={selectAllVisible}
                           >
-                            <PretextLines
-                              as="span"
-                              text="All"
-                              font={PT.btnText}
-                              lineHeightPx={PT_LH.btnText}
-                              fixedWidth={40}
-                              style={{ display: "inline-block" }}
-                            />
+                            All
                           </button>
                           <button
                             type="button"
                             className={`btn-text ${viewNoneOn ? "is-on" : ""}`}
                             onClick={clearVisibleSelection}
                           >
-                            <PretextLines
-                              as="span"
-                              text="None"
-                              font={PT.btnText}
-                              lineHeightPx={PT_LH.btnText}
-                              fixedWidth={44}
-                              style={{ display: "inline-block" }}
-                            />
+                            None
                           </button>
                         </div>
                       </div>
                     </th>
-                    <th scope="col" className="ch-th-channel r-label">
-                      <PretextLines
-                        as="span"
-                        text="Channel"
-                        font={PT.toolbarLabel}
-                        lineHeightPx={PT_LH.toolbarLabel}
-                        fixedWidth={80}
-                        style={{ display: "inline-block" }}
-                      />
-                    </th>
-                    <th scope="col" className="ch-th-id r-label">
-                      <PretextLines
-                        as="span"
-                        text="ID"
-                        font={PT.toolbarLabel}
-                        lineHeightPx={PT_LH.toolbarLabel}
-                        fixedWidth={32}
-                        style={{ display: "inline-block" }}
-                      />
-                    </th>
+                    <th scope="col" className="ch-th-channel r-label">Channel</th>
+                    <th scope="col" className="ch-th-id r-label">ID</th>
                     <th scope="col" aria-label="Remove" className="ch-th-remove" />
                   </tr>
                 </thead>
@@ -2349,24 +2330,7 @@ export default function App() {
                       </td>
                       <td className="channel-name">
                         <div className="channel-name-row">
-                          {ch.thumbnailUrl ? (
-                            <img
-                              className="channel-avatar"
-                              src={ch.thumbnailUrl}
-                              alt=""
-                              width={32}
-                              height={32}
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          ) : (
-                            <span
-                              className="channel-avatar channel-avatar--placeholder"
-                              aria-hidden
-                            >
-                              {(ch.name || "?").trim().charAt(0) || "?"}
-                            </span>
-                          )}
+                          <ChannelAvatar url={ch.thumbnailUrl} name={ch.name} />
                           <PretextLines
                             text={ch.name}
                             font={PT.tableCell}

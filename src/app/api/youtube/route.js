@@ -183,6 +183,35 @@ export async function GET(req) {
 
   if (!channelId) return NextResponse.json({ error: 'channelId or videoId is required' }, { status: 400 });
 
+  /** Cheap lookup: channel title only (1 quota). Accepts UC… id or handle (with or without @). */
+  if (searchParams.get('channelTitleOnly') === '1') {
+    try {
+      const isChannelId = /^UC[\w-]{22}$/.test(channelId);
+      const q = isChannelId
+        ? `id=${encodeURIComponent(channelId)}`
+        : `forHandle=${encodeURIComponent(channelId.replace(/^@/, ''))}`;
+      const res = await fetch(
+        `https://youtube.googleapis.com/youtube/v3/channels?part=snippet&${q}&key=${apiKey}`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'channels.list failed');
+      const item = data.items?.[0];
+      const title = item?.snippet?.title;
+      const resolvedId = item?.id;
+      if (!title || !resolvedId) throw new Error('Channel not found');
+      const thumbs = item?.snippet?.thumbnails;
+      const thumbnailUrl =
+        thumbs?.medium?.url || thumbs?.high?.url || thumbs?.default?.url || null;
+      return NextResponse.json({ channelTitle: title, channelId: resolvedId, thumbnailUrl });
+    } catch (error) {
+      console.error('YouTube API error:', error);
+      return NextResponse.json(
+        { error: error.message || 'Failed to resolve channel' },
+        { status: 500 }
+      );
+    }
+  }
+
   const { forceRefresh, excludeIds } = parseExcludeOptions(searchParams);
 
   try {

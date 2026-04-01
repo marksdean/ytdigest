@@ -42,6 +42,7 @@ function YoutubeMarkIcon() {
     </svg>
   );
 }
+import { createPortal } from "react-dom";
 import { PretextLines } from "@/components/PretextLines";
 import { PT, PT_LH } from "@/lib/pretextFonts";
 
@@ -243,10 +244,30 @@ function inferChannelsFromVideos(videoRows) {
     const cid = v.channelId;
     if (!cid || typeof cid !== "string") continue;
     if (!byId.has(cid)) {
-      byId.set(cid, { id: cid, name: v.channel || cid });
+      byId.set(cid, { id: cid, name: v.channel || cid, thumbnailUrl: null });
     }
   }
   return [...byId.values()];
+}
+
+function channelRowForDb(c) {
+  return { id: c.id, name: c.name, thumbnail_url: c.thumbnailUrl ?? null };
+}
+
+/**
+ * @returns {{ param: string, isUcId: boolean } | null}
+ * `param` is passed to channels.list as id (UC…) or forHandle (handle without @).
+ */
+function parseChannelLookup(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const urlCh = s.match(/\/channel\/(UC[\w-]{22})/i);
+  if (urlCh) return { param: urlCh[1], isUcId: true };
+  const urlAt = s.match(/youtube\.com\/@([\w.-]+)/i);
+  if (urlAt) return { param: urlAt[1], isUcId: false };
+  if (/^UC[\w-]{22}$/.test(s)) return { param: s, isUcId: true };
+  if (s.startsWith("@")) return { param: s.slice(1), isUcId: false };
+  return { param: s, isUcId: /^UC[\w-]{22}$/.test(s) };
 }
 
 const STYLES = `
@@ -271,11 +292,16 @@ const STYLES = `
     --r-taupe: #BFB1A8;
     --r-sand: #C09C6F;
     --r-earth: #5F503E;
-    --r-accent: #AD1D1D;
-    --r-accent-hover: #8f1818;
+    /* Interactive accent / “selected” (buttons, chips, checkboxes) */
+    --r-accent: #ed8008;
+    --r-accent-hover: #d97300;
+    --r-run: #736b1e;
+    --r-run-hover: #5e5818;
+    --r-on-run: #ffffff;
     --r-run-arrow: #ffffff;
     --r-cancel: #bf1b1b;
-    --r-selected: #ed3f1c;
+    --r-cancel-hover: #9f1616;
+    --r-selected: #ed8008;
     --r-on-selected: #ffffff;
     --r-accent-warm: #BF7C2A;
     --r-on-dark: #E1E4E1;
@@ -508,6 +534,31 @@ const STYLES = `
     accent-color: var(--r-accent);
   }
   .channel-name { font-weight: 500; color: var(--r-text); text-align: left; }
+  .channel-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .channel-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid var(--r-line);
+    background: var(--r-bg);
+  }
+  .channel-avatar--placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--r-font);
+    color: var(--r-text-muted);
+    background: var(--r-surface-hot);
+  }
   .channel-id { font-family: var(--r-mono); font-size: 10px; color: var(--r-text-faint); text-align: left; word-break: break-all; }
   .ch-td-remove { width: 1%; white-space: nowrap; text-align: right; vertical-align: middle; padding-right: 0 !important; padding-left: 8px !important; }
   .remove-btn {
@@ -552,11 +603,11 @@ const STYLES = `
   }
   .btn:hover { background: var(--r-bg); }
   .btn.primary {
-    background: var(--r-accent);
-    color: var(--r-on-accent);
-    border-color: var(--r-accent);
+    background: var(--r-run);
+    color: var(--r-on-run);
+    border-color: var(--r-run);
   }
-  .btn.primary:hover { background: var(--r-accent-hover); border-color: var(--r-accent-hover); }
+  .btn.primary:hover { background: var(--r-run-hover); border-color: var(--r-run-hover); }
   .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .r-opt {
@@ -630,8 +681,8 @@ const STYLES = `
   .btn-play svg { width: 18px; height: 18px; display: block; }
   .btn-play svg path { fill: var(--r-run-arrow); }
   .btn-play .spinner {
-    border-color: rgba(242, 241, 236, 0.35);
-    border-top-color: var(--r-on-accent);
+    border-color: rgba(255, 255, 255, 0.35);
+    border-top-color: var(--r-on-run);
   }
   .btn-cancel {
     background: var(--r-cancel) !important;
@@ -639,8 +690,8 @@ const STYLES = `
     color: #fff !important;
   }
   .btn-cancel:hover {
-    background: #a01717 !important;
-    border-color: #a01717 !important;
+    background: var(--r-cancel-hover) !important;
+    border-color: var(--r-cancel-hover) !important;
   }
 
   .r-select {
@@ -694,7 +745,7 @@ const STYLES = `
   }
   .status-bar .status-msg { flex: 1; min-width: 0; }
   .status-bar.running { border-color: var(--r-line-muted); }
-  .status-bar.error { border-color: var(--r-accent); }
+  .status-bar.error { border-color: var(--r-cancel); }
   .status-bar.success { border-color: var(--r-earth); }
 
   .spinner {
@@ -806,7 +857,14 @@ const STYLES = `
     min-height: 0;
     display: flex;
     flex-direction: column;
+    height: 100%;
     border-bottom: none;
+  }
+  .video-card--grid .card-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .video-card--grid .card-top {
     flex-direction: column;
@@ -877,6 +935,61 @@ const STYLES = `
     scrollbar-width: thin;
   }
   .card-tags-scroll::-webkit-scrollbar { height: 4px; }
+
+  .card-tags-popover-wrap {
+    position: relative;
+    margin-bottom: 10px;
+    z-index: 1;
+  }
+  .video-card--grid .card-tags-popover-wrap.is-open {
+    z-index: 30;
+  }
+  .card-tags-trigger {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-family: var(--r-mono);
+    letter-spacing: 0.04em;
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    background: var(--r-surface-hot);
+    cursor: pointer;
+    color: var(--r-text-muted);
+  }
+  .card-tags-trigger:hover {
+    border-color: var(--r-text-faint);
+    color: var(--r-text);
+  }
+  .card-tags-trigger.is-open {
+    border-color: var(--r-line-focus);
+    color: var(--r-text);
+  }
+  .card-tags-popover {
+    padding: 10px;
+    background: var(--r-bg);
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    box-shadow: 0 6px 20px rgba(38, 18, 1, 0.12);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-content: flex-start;
+    max-height: min(42vh, 220px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    box-sizing: border-box;
+  }
+  .card-tags-popover--floating {
+    max-width: min(100vw - 24px, 360px);
+  }
+  .card-tags-popover-empty {
+    font-size: 11px;
+    color: var(--r-text-faint);
+    font-family: var(--r-mono);
+    width: 100%;
+  }
   .badge {
     font-family: var(--r-mono);
     font-size: 10px;
@@ -959,8 +1072,23 @@ const STYLES = `
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .video-card--grid .card-footer {
+    margin-top: auto;
+    flex-shrink: 0;
+  }
+  .card-footer-start {
+    display: flex;
+    align-items: center;
     gap: 12px;
-    flex-wrap: wrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .card-footer-delete {
+    flex-shrink: 0;
+    margin-left: auto;
   }
   .watch-link-yt {
     display: inline-flex;
@@ -1007,8 +1135,8 @@ const STYLES = `
   }
   .star-btn:hover { color: var(--r-text); border-color: var(--r-text-faint); }
   .star-btn.is-starred {
-    color: var(--r-accent-warm);
-    border-color: var(--r-sand);
+    color: var(--r-selected);
+    border-color: var(--r-selected);
     background: var(--r-surface);
   }
   .card-note-label {
@@ -1101,6 +1229,7 @@ const STYLES = `
   .big-icon { display: none; }
 
   @media print {
+    [data-tags-popover-floating] { display: none !important; }
     .toolbar, .rams-skip, .add-row, .ch-td-remove, .remove-btn, .r-expand-btn, .tag-panel { display: none !important; }
     .root { padding: 0; max-width: none; }
     body { background: #fff; }
@@ -1290,8 +1419,10 @@ async function sbFetch(resource, method = 'GET', data = null) {
 
 export default function App() {
   const [channels, setChannels] = useState([]);
+  /** Optional label when adding a channel; if empty, title is fetched from YouTube by ID/handle. */
   const [newName, setNewName] = useState("");
   const [newId, setNewId] = useState("");
+  const [resolvingChannel, setResolvingChannel] = useState(false);
   const [since, setSince] = useState("1 month");
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState(null);
@@ -1304,6 +1435,9 @@ export default function App() {
   const [tagFilter, setTagFilter] = useState("All");
   const [sortBy, setSortBy] = useState("Date (Newest)");
   const [viewMode, setViewMode] = useState("grid");
+  /** Grid view: open tag popover (fixed layer) anchored to trigger. */
+  const [tagsPopover, setTagsPopover] = useState(null);
+  const digestScrollRef = useRef(null);
   const [channelsPanelHidden, setChannelsPanelHidden] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [openDesc, setOpenDesc] = useState({});
@@ -1327,6 +1461,47 @@ export default function App() {
   useEffect(() => {
     videosRef.current = videos;
   }, [videos]);
+
+  useEffect(() => {
+    if (tagsPopover == null) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setTagsPopover(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [tagsPopover]);
+
+  useEffect(() => {
+    if (tagsPopover == null) return;
+    const onDoc = (e) => {
+      const t = e.target;
+      if (
+        t instanceof Element &&
+        !t.closest("[data-tags-popover-root]") &&
+        !t.closest("[data-tags-popover-floating]")
+      ) {
+        setTagsPopover(null);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [tagsPopover]);
+
+  useEffect(() => {
+    if (tagsPopover == null) return;
+    const onScroll = () => setTagsPopover(null);
+    const el = digestScrollRef.current;
+    el?.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      el?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [tagsPopover]);
+
+  useEffect(() => {
+    if (viewMode !== "grid") setTagsPopover(null);
+  }, [viewMode]);
 
   useEffect(() => {
     const ids = new Set(channels.map((c) => c.id));
@@ -1401,7 +1576,11 @@ export default function App() {
       const hasSavedChannels =
         Array.isArray(chRes?.channels) && chRes.channels.length > 0;
       if (hasSavedChannels) {
-        const list = chRes.channels.map((c) => ({ id: c.id, name: c.name }));
+        const list = chRes.channels.map((c) => ({
+          id: c.id,
+          name: c.name,
+          thumbnailUrl: c.thumbnail_url ?? null,
+        }));
         const ids = new Set(list.map((c) => c.id));
         prevChannelIdsRef.current = ids;
         setChannels(list);
@@ -1434,10 +1613,71 @@ export default function App() {
     });
   }, []);
 
-  const addChannel = () => {
-    if (!newName.trim() || !newId.trim()) return;
-    setChannels(c => [...c, { id: newId.trim(), name: newName.trim() }]);
-    setNewName(""); setNewId("");
+  const addChannel = async () => {
+    const parsed = parseChannelLookup(newId);
+    if (!parsed) return;
+    const overrideName = newName.trim();
+
+    if (parsed.isUcId && channels.some((c) => c.id === parsed.param)) {
+      setStatus("That channel is already in the list.");
+      setStatusType("error");
+      return;
+    }
+
+    if (parsed.isUcId && overrideName) {
+      setResolvingChannel(true);
+      setStatus(null);
+      try {
+        const res = await fetch(
+          `/api/youtube?channelId=${encodeURIComponent(parsed.param)}&channelTitleOnly=1`
+        );
+        const data = await res.json();
+        const resolvedId = res.ok ? data.channelId || parsed.param : parsed.param;
+        const thumb = res.ok ? data.thumbnailUrl ?? null : null;
+        setChannels((ch) => [
+          ...ch,
+          { id: resolvedId, name: overrideName, thumbnailUrl: thumb },
+        ]);
+        setNewName("");
+        setNewId("");
+      } catch {
+        setChannels((ch) => [...ch, { id: parsed.param, name: overrideName, thumbnailUrl: null }]);
+        setNewName("");
+        setNewId("");
+      } finally {
+        setResolvingChannel(false);
+      }
+      return;
+    }
+
+    setResolvingChannel(true);
+    setStatus(null);
+    try {
+      const res = await fetch(
+        `/api/youtube?channelId=${encodeURIComponent(parsed.param)}&channelTitleOnly=1`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not resolve channel");
+      const resolvedId = data.channelId || parsed.param;
+      if (channels.some((c) => c.id === resolvedId)) {
+        setStatus("That channel is already in the list.");
+        setStatusType("error");
+        return;
+      }
+      const name = overrideName || data.channelTitle || resolvedId;
+      const thumb = data.thumbnailUrl ?? null;
+      setChannels((c) => [...c, { id: resolvedId, name, thumbnailUrl: thumb }]);
+      setNewName("");
+      setNewId("");
+    } catch (e) {
+      setStatus(
+        e?.message ||
+          "Could not resolve channel. Use a channel ID (UC…), youtube.com/channel/UC…, or @handle URL."
+      );
+      setStatusType("error");
+    } finally {
+      setResolvingChannel(false);
+    }
   };
 
   const removeChannel = async (id) => {
@@ -1452,7 +1692,7 @@ export default function App() {
       })
     );
     if (dbReady) {
-      await sbFetch("channels", "POST", updated.map((c) => ({ id: c.id, name: c.name })));
+      await sbFetch("channels", "POST", updated.map(channelRowForDb));
       if (removed) {
         const qs = new URLSearchParams({
           resource: "results_by_channel",
@@ -1639,7 +1879,7 @@ export default function App() {
         const chSave = await sbFetch(
           "channels",
           "POST",
-          channels.map((c) => ({ id: c.id, name: c.name }))
+          channels.map(channelRowForDb)
         );
         if (chSave?.ok === false) {
           setStatus(`Could not save channel list: ${chSave.error}`);
@@ -1716,7 +1956,7 @@ export default function App() {
         const saveRes = await sbFetch("results", "POST", rows);
         if (saveRes && saveRes.ok === false) {
           setStatus(
-            `Digest ran but saving to the database failed: ${saveRes.error}. Check the Supabase table digest_results and run pending SQL migrations (unique constraint on video_id + channel).`
+            `Digest ran but saving to the database failed: ${saveRes.error}. In Supabase SQL Editor, run the migrations under supabase/migrations/ (adds description, channel_id/starred/user_note, and unique index on video_id + channel). If columns exist but the error persists, reload the API schema cache in project settings.`
           );
           setStatusType("error");
         }
@@ -2070,7 +2310,31 @@ export default function App() {
                         />
                       </td>
                       <td className="channel-name">
-                        <PretextLines text={ch.name} font={PT.tableCell} lineHeightPx={PT_LH.tableCell} />
+                        <div className="channel-name-row">
+                          {ch.thumbnailUrl ? (
+                            <img
+                              className="channel-avatar"
+                              src={ch.thumbnailUrl}
+                              alt=""
+                              width={32}
+                              height={32}
+                              loading="lazy"
+                              decoding="async"
+                            />
+                          ) : (
+                            <span
+                              className="channel-avatar channel-avatar--placeholder"
+                              aria-hidden
+                            >
+                              {(ch.name || "?").trim().charAt(0) || "?"}
+                            </span>
+                          )}
+                          <PretextLines
+                            text={ch.name}
+                            font={PT.tableCell}
+                            lineHeightPx={PT_LH.tableCell}
+                          />
+                        </div>
                       </td>
                       <td className="channel-id">
                         <PretextLines text={ch.id} font={PT.tableMono} lineHeightPx={PT_LH.tableMono} />
@@ -2092,12 +2356,27 @@ export default function App() {
             </div>
           )}
           <div className="add-row">
-            <input placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-            <input placeholder="Channel ID (UC…)" value={newId} onChange={(e) => setNewId(e.target.value)} />
-            <button type="button" className="btn" onClick={addChannel}>
+            <input
+              placeholder="Channel ID, youtube.com/channel/UC…, or @handle URL"
+              value={newId}
+              onChange={(e) => setNewId(e.target.value)}
+              aria-label="Channel ID or URL"
+            />
+            <input
+              placeholder="Optional display name (uses YouTube title if empty)"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              aria-label="Optional display name"
+            />
+            <button
+              type="button"
+              className="btn"
+              onClick={addChannel}
+              disabled={resolvingChannel || !newId.trim()}
+            >
               <PretextLines
                 as="span"
-                text="Add"
+                text={resolvingChannel ? "…" : "Add"}
                 font={PT.tableCell}
                 lineHeightPx={PT_LH.tableCell}
                 fixedWidth={48}
@@ -2408,7 +2687,10 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`digest-scroll ${viewMode === "grid" ? "digest-grid-view" : "digest-list"}`}>
+            <div
+              ref={digestScrollRef}
+              className={`digest-scroll ${viewMode === "grid" ? "digest-grid-view" : "digest-list"}`}
+            >
               {filtered.map((v) => {
                 const rowKey = videoRowKey(v);
                 const mergedDesc = (
@@ -2423,11 +2705,13 @@ export default function App() {
                     !l.url.includes(`youtu.be/${v.videoId}`)
                 );
                 const isGrid = viewMode === "grid";
+                const normalizedTags = normalizeTags(v.tags);
                 return (
                   <article
                     key={rowKey}
                     className={`video-card ${isGrid ? "video-card--grid" : ""}`}
                   >
+                    <div className="card-main">
                     <div className="card-top">
                       {v.videoId ? (
                         <a
@@ -2503,36 +2787,144 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <div className="card-tags-scroll" aria-label="Tags">
-                      {normalizeTags(v.tags).map((t) => (
-                        <span key={t} className="badge">
+                    {isGrid ? (
+                      <>
+                      <div
+                        className={`card-tags-popover-wrap ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
+                        data-tags-popover-root
+                      >
+                        <button
+                          type="button"
+                          className={`card-tags-trigger ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
+                          onClick={(e) => {
+                            if (tagsPopover?.key === rowKey) {
+                              setTagsPopover(null);
+                              return;
+                            }
+                            const r = e.currentTarget.getBoundingClientRect();
+                            const w = Math.max(r.width, 200);
+                            const vw =
+                              typeof window !== "undefined"
+                                ? window.innerWidth
+                                : 400;
+                            let left = r.left;
+                            const maxLeft = Math.max(8, vw - w - 12);
+                            if (left > maxLeft) left = maxLeft;
+                            setTagsPopover({
+                              key: rowKey,
+                              top: r.bottom + 4,
+                              left,
+                              width: w,
+                            });
+                          }}
+                          aria-expanded={tagsPopover?.key === rowKey}
+                          aria-controls={`tags-pop-${rowKey}`}
+                          id={`tags-trigger-${rowKey}`}
+                        >
                           <PretextLines
                             as="span"
-                            text={decodeHtmlEntities(t)}
+                            text={
+                              v.publishedAt
+                                ? `Tags (${normalizedTags.length}) · ${new Date(v.publishedAt).toLocaleDateString(undefined, {
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "numeric",
+                                  })}`
+                                : `Tags (${normalizedTags.length})`
+                            }
                             font={PT.badge}
                             lineHeightPx={PT_LH.badge}
-                            fixedWidth={240}
+                            fixedWidth={260}
                             style={{ display: "inline-block" }}
                           />
-                        </span>
-                      ))}
-                      {v.publishedAt && (
-                        <span className="badge date">
-                          <PretextLines
-                            as="span"
-                            text={new Date(v.publishedAt).toLocaleDateString(undefined, {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                            font={PT.badgeDate}
-                            lineHeightPx={PT_LH.badgeDate}
-                            fixedWidth={120}
-                            style={{ display: "inline-block" }}
-                          />
-                        </span>
-                      )}
-                    </div>
+                        </button>
+                      </div>
+                      {tagsPopover?.key === rowKey &&
+                        typeof document !== "undefined" &&
+                        createPortal(
+                          <div
+                            id={`tags-pop-${rowKey}`}
+                            data-tags-popover-floating
+                            className="card-tags-popover card-tags-popover--floating"
+                            role="dialog"
+                            aria-label="Video tags"
+                            aria-labelledby={`tags-trigger-${rowKey}`}
+                            style={{
+                              position: "fixed",
+                              top: tagsPopover.top,
+                              left: tagsPopover.left,
+                              width: tagsPopover.width,
+                              zIndex: 10000,
+                            }}
+                          >
+                            {normalizedTags.length === 0 ? (
+                              <span className="card-tags-popover-empty">No tags</span>
+                            ) : (
+                              normalizedTags.map((t) => (
+                                <span key={t} className="badge">
+                                  <PretextLines
+                                    as="span"
+                                    text={decodeHtmlEntities(t)}
+                                    font={PT.badge}
+                                    lineHeightPx={PT_LH.badge}
+                                    fixedWidth={240}
+                                    style={{ display: "inline-block" }}
+                                  />
+                                </span>
+                              ))
+                            )}
+                            {v.publishedAt && (
+                              <span className="badge date">
+                                <PretextLines
+                                  as="span"
+                                  text={new Date(v.publishedAt).toLocaleDateString(undefined, {
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
+                                  font={PT.badgeDate}
+                                  lineHeightPx={PT_LH.badgeDate}
+                                  fixedWidth={120}
+                                  style={{ display: "inline-block" }}
+                                />
+                              </span>
+                            )}
+                          </div>,
+                          document.body
+                        )}
+                      </>
+                    ) : (
+                      <div className="card-tags-scroll" aria-label="Tags">
+                        {normalizedTags.map((t) => (
+                          <span key={t} className="badge">
+                            <PretextLines
+                              as="span"
+                              text={decodeHtmlEntities(t)}
+                              font={PT.badge}
+                              lineHeightPx={PT_LH.badge}
+                              fixedWidth={240}
+                              style={{ display: "inline-block" }}
+                            />
+                          </span>
+                        ))}
+                        {v.publishedAt && (
+                          <span className="badge date">
+                            <PretextLines
+                              as="span"
+                              text={new Date(v.publishedAt).toLocaleDateString(undefined, {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                              font={PT.badgeDate}
+                              lineHeightPx={PT_LH.badgeDate}
+                              fixedWidth={120}
+                              style={{ display: "inline-block" }}
+                            />
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <p className="summary-text">
                       <PretextLines
                         as="span"
@@ -2541,7 +2933,7 @@ export default function App() {
                         lineHeightPx={
                           isGrid ? PT_LH.summaryGrid : PT_LH.summaryList
                         }
-                        maxLines={isGrid ? 4 : undefined}
+                        maxLines={isGrid ? 6 : undefined}
                         style={{ display: "block" }}
                       />
                     </p>
@@ -2659,25 +3051,26 @@ export default function App() {
                         )}
                       </div>
                     )}
+                    </div>
 
                     <div className="card-footer">
-                      {v.videoId ? (
-                        <a
-                          className="watch-link-yt"
-                          href={youtubeWatchUrl(v.videoId)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label="Open on YouTube"
-                          title="Open on YouTube"
-                        >
-                          <YoutubeMarkIcon />
-                        </a>
-                      ) : (
-                        <span className="watch-link-yt" aria-hidden style={{ opacity: 0.35 }}>
-                          <YoutubeMarkIcon />
-                        </span>
-                      )}
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div className="card-footer-start">
+                        {v.videoId ? (
+                          <a
+                            className="watch-link-yt"
+                            href={youtubeWatchUrl(v.videoId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="Open on YouTube"
+                            title="Open on YouTube"
+                          >
+                            <YoutubeMarkIcon />
+                          </a>
+                        ) : (
+                          <span className="watch-link-yt" aria-hidden style={{ opacity: 0.35 }}>
+                            <YoutubeMarkIcon />
+                          </span>
+                        )}
                         <span className="key-points">
                           <PretextLines
                             as="span"
@@ -2688,16 +3081,16 @@ export default function App() {
                             style={{ display: "inline-block" }}
                           />
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => deleteResult(v.videoId, v.channel)}
-                          className="remove-btn"
-                          title="Remove"
-                          aria-label="Remove result"
-                        >
-                          ×
-                        </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => deleteResult(v.videoId, v.channel)}
+                        className="remove-btn card-footer-delete"
+                        title="Remove"
+                        aria-label="Remove result"
+                      >
+                        ×
+                      </button>
                     </div>
                   </article>
                 );

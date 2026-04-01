@@ -46,46 +46,6 @@ import { createPortal } from "react-dom";
 import { PretextLines } from "@/components/PretextLines";
 import { PT, PT_LH } from "@/lib/pretextFonts";
 
-/** URLs from video description (full text from videos.list — search snippets are truncated). */
-function extractLinksFromText(text) {
-  if (!text || typeof text !== "string") return [];
-  const seen = new Set();
-  const out = [];
-
-  const pushNormalized = (raw) => {
-    let url = raw.replace(/[.,;:)]+$/, "").replace(/\]+$/,"");
-    if (url.startsWith("www.")) url = `https://${url}`;
-    try {
-      const u = new URL(url);
-      if (seen.has(u.href)) return;
-      seen.add(u.href);
-      const host = u.hostname.replace(/^www\./, "");
-      const path = u.pathname.toLowerCase();
-      let kind = "link";
-      if (path.endsWith(".pdf") || u.href.toLowerCase().includes(".pdf")) kind = "pdf";
-      else if (/youtube\.com|youtu\.be/i.test(host)) kind = "youtube";
-      else if (/drive\.google|dropbox|notion\.|github\.com/i.test(host)) kind = "resource";
-      out.push({ url: u.href, host, kind });
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const md = /\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi;
-  let mm;
-  while ((mm = md.exec(text)) !== null) {
-    pushNormalized(mm[2]);
-  }
-
-  const re = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    pushNormalized(m[0]);
-  }
-
-  return out;
-}
-
 /** Turn bare URLs in description text into clickable links (preserves newlines via parent pre-wrap). */
 function linkifyDescription(text) {
   const s = text == null ? "" : String(text);
@@ -1046,24 +1006,6 @@ const STYLES = `
     word-break: break-all;
   }
   .r-expand-body.desc-linkified a:hover { color: var(--r-accent-warm); }
-  .link-list { list-style: none; }
-  .link-list li { margin-bottom: 8px; }
-  .link-list a {
-    font-size: 12px;
-    color: var(--r-earth);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    word-break: break-all;
-  }
-  .link-list a:hover { color: var(--r-accent-warm); }
-  .link-kind {
-    font-family: var(--r-mono);
-    font-size: 9px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--r-text-faint);
-    margin-bottom: 2px;
-  }
 
   .card-footer {
     margin-top: 10px;
@@ -1117,9 +1059,25 @@ const STYLES = `
 
   .card-actions {
     display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 8px;
     margin-top: 6px;
+    min-width: 0;
+  }
+  .card-actions .card-tags-popover-wrap {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+  }
+  .card-actions .card-tags-trigger {
+    width: 100%;
+    min-width: 0;
+  }
+  .card-actions .card-tags-scroll {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
   }
   .star-btn {
     background: var(--r-surface-hot);
@@ -1441,7 +1399,6 @@ export default function App() {
   const [channelsPanelHidden, setChannelsPanelHidden] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [openDesc, setOpenDesc] = useState({});
-  const [openLinks, setOpenLinks] = useState({});
   const [digestChannelIds, setDigestChannelIds] = useState(() => new Set());
   const [visibleChannelIds, setVisibleChannelIds] = useState(() => new Set());
   const [descriptionByVideoId, setDescriptionByVideoId] = useState({});
@@ -2073,13 +2030,6 @@ export default function App() {
     if (willOpen) await fetchDescriptionIfNeeded(v);
   };
 
-  const toggleLinks = async (v) => {
-    const k = videoRowKey(v);
-    const willOpen = !openLinks[k];
-    setOpenLinks((o) => ({ ...o, [k]: willOpen }));
-    if (willOpen) await fetchDescriptionIfNeeded(v);
-  };
-
   return (
     <>
       <style>{STYLES}</style>
@@ -2698,12 +2648,6 @@ export default function App() {
                   descriptionByVideoId[v.videoId] ||
                   ""
                 ).trim();
-                const linkSourceText = [mergedDesc, v.summary || ""].filter(Boolean).join("\n");
-                const extraLinks = extractLinksFromText(linkSourceText).filter(
-                  (l) =>
-                    !l.url.includes(`watch?v=${v.videoId}`) &&
-                    !l.url.includes(`youtu.be/${v.videoId}`)
-                );
                 const isGrid = viewMode === "grid";
                 const normalizedTags = normalizeTags(v.tags);
                 return (
@@ -2784,83 +2728,107 @@ export default function App() {
                           >
                             ★
                           </button>
-                        </div>
-                      </div>
-                    </div>
-                    {isGrid ? (
-                      <>
-                      <div
-                        className={`card-tags-popover-wrap ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
-                        data-tags-popover-root
-                      >
-                        <button
-                          type="button"
-                          className={`card-tags-trigger ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
-                          onClick={(e) => {
-                            if (tagsPopover?.key === rowKey) {
-                              setTagsPopover(null);
-                              return;
-                            }
-                            const r = e.currentTarget.getBoundingClientRect();
-                            const w = Math.max(r.width, 200);
-                            const vw =
-                              typeof window !== "undefined"
-                                ? window.innerWidth
-                                : 400;
-                            let left = r.left;
-                            const maxLeft = Math.max(8, vw - w - 12);
-                            if (left > maxLeft) left = maxLeft;
-                            setTagsPopover({
-                              key: rowKey,
-                              top: r.bottom + 4,
-                              left,
-                              width: w,
-                            });
-                          }}
-                          aria-expanded={tagsPopover?.key === rowKey}
-                          aria-controls={`tags-pop-${rowKey}`}
-                          id={`tags-trigger-${rowKey}`}
-                        >
-                          <PretextLines
-                            as="span"
-                            text={
-                              v.publishedAt
-                                ? `Tags (${normalizedTags.length}) · ${new Date(v.publishedAt).toLocaleDateString(undefined, {
-                                    year: "numeric",
-                                    month: "short",
-                                    day: "numeric",
-                                  })}`
-                                : `Tags (${normalizedTags.length})`
-                            }
-                            font={PT.badge}
-                            lineHeightPx={PT_LH.badge}
-                            fixedWidth={260}
-                            style={{ display: "inline-block" }}
-                          />
-                        </button>
-                      </div>
-                      {tagsPopover?.key === rowKey &&
-                        typeof document !== "undefined" &&
-                        createPortal(
-                          <div
-                            id={`tags-pop-${rowKey}`}
-                            data-tags-popover-floating
-                            className="card-tags-popover card-tags-popover--floating"
-                            role="dialog"
-                            aria-label="Video tags"
-                            aria-labelledby={`tags-trigger-${rowKey}`}
-                            style={{
-                              position: "fixed",
-                              top: tagsPopover.top,
-                              left: tagsPopover.left,
-                              width: tagsPopover.width,
-                              zIndex: 10000,
-                            }}
-                          >
-                            {normalizedTags.length === 0 ? (
-                              <span className="card-tags-popover-empty">No tags</span>
-                            ) : (
-                              normalizedTags.map((t) => (
+                          {isGrid ? (
+                            <>
+                              <div
+                                className={`card-tags-popover-wrap ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
+                                data-tags-popover-root
+                              >
+                                <button
+                                  type="button"
+                                  className={`card-tags-trigger ${tagsPopover?.key === rowKey ? "is-open" : ""}`}
+                                  onClick={(e) => {
+                                    if (tagsPopover?.key === rowKey) {
+                                      setTagsPopover(null);
+                                      return;
+                                    }
+                                    const r = e.currentTarget.getBoundingClientRect();
+                                    const w = Math.max(r.width, 200);
+                                    const vw =
+                                      typeof window !== "undefined"
+                                        ? window.innerWidth
+                                        : 400;
+                                    let left = r.left;
+                                    const maxLeft = Math.max(8, vw - w - 12);
+                                    if (left > maxLeft) left = maxLeft;
+                                    setTagsPopover({
+                                      key: rowKey,
+                                      top: r.bottom + 4,
+                                      left,
+                                      width: w,
+                                    });
+                                  }}
+                                  aria-expanded={tagsPopover?.key === rowKey}
+                                  aria-controls={`tags-pop-${rowKey}`}
+                                  id={`tags-trigger-${rowKey}`}
+                                >
+                                  <PretextLines
+                                    as="span"
+                                    text={`Tags (${normalizedTags.length})`}
+                                    font={PT.badge}
+                                    lineHeightPx={PT_LH.badge}
+                                    fixedWidth={200}
+                                    style={{ display: "inline-block" }}
+                                  />
+                                </button>
+                              </div>
+                              {tagsPopover?.key === rowKey &&
+                                typeof document !== "undefined" &&
+                                createPortal(
+                                  <div
+                                    id={`tags-pop-${rowKey}`}
+                                    data-tags-popover-floating
+                                    className="card-tags-popover card-tags-popover--floating"
+                                    role="dialog"
+                                    aria-label="Video tags"
+                                    aria-labelledby={`tags-trigger-${rowKey}`}
+                                    style={{
+                                      position: "fixed",
+                                      top: tagsPopover.top,
+                                      left: tagsPopover.left,
+                                      width: tagsPopover.width,
+                                      zIndex: 10000,
+                                    }}
+                                  >
+                                    {normalizedTags.length === 0 ? (
+                                      <span className="card-tags-popover-empty">No tags</span>
+                                    ) : (
+                                      normalizedTags.map((t) => (
+                                        <span key={t} className="badge">
+                                          <PretextLines
+                                            as="span"
+                                            text={decodeHtmlEntities(t)}
+                                            font={PT.badge}
+                                            lineHeightPx={PT_LH.badge}
+                                            fixedWidth={240}
+                                            style={{ display: "inline-block" }}
+                                          />
+                                        </span>
+                                      ))
+                                    )}
+                                    {v.publishedAt && (
+                                      <span className="badge date">
+                                        <PretextLines
+                                          as="span"
+                                          text={new Date(v.publishedAt).toLocaleDateString(undefined, {
+                                            year: "numeric",
+                                            month: "short",
+                                            day: "numeric",
+                                          })}
+                                          font={PT.badgeDate}
+                                          lineHeightPx={PT_LH.badgeDate}
+                                          fixedWidth={120}
+                                          style={{ display: "inline-block" }}
+                                        />
+                                      </span>
+                                    )}
+                                  </div>,
+                                  document.body
+                                )}
+                            </>
+                          ) : (
+                            <div className="card-tags-scroll" aria-label="Tags">
+                              {normalizedTags.map((t) => (
                                 <span key={t} className="badge">
                                   <PretextLines
                                     as="span"
@@ -2871,60 +2839,28 @@ export default function App() {
                                     style={{ display: "inline-block" }}
                                   />
                                 </span>
-                              ))
-                            )}
-                            {v.publishedAt && (
-                              <span className="badge date">
-                                <PretextLines
-                                  as="span"
-                                  text={new Date(v.publishedAt).toLocaleDateString(undefined, {
-                                    year: "numeric",
-                                    month: "short",
-                                    day: "numeric",
-                                  })}
-                                  font={PT.badgeDate}
-                                  lineHeightPx={PT_LH.badgeDate}
-                                  fixedWidth={120}
-                                  style={{ display: "inline-block" }}
-                                />
-                              </span>
-                            )}
-                          </div>,
-                          document.body
-                        )}
-                      </>
-                    ) : (
-                      <div className="card-tags-scroll" aria-label="Tags">
-                        {normalizedTags.map((t) => (
-                          <span key={t} className="badge">
-                            <PretextLines
-                              as="span"
-                              text={decodeHtmlEntities(t)}
-                              font={PT.badge}
-                              lineHeightPx={PT_LH.badge}
-                              fixedWidth={240}
-                              style={{ display: "inline-block" }}
-                            />
-                          </span>
-                        ))}
-                        {v.publishedAt && (
-                          <span className="badge date">
-                            <PretextLines
-                              as="span"
-                              text={new Date(v.publishedAt).toLocaleDateString(undefined, {
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric",
-                              })}
-                              font={PT.badgeDate}
-                              lineHeightPx={PT_LH.badgeDate}
-                              fixedWidth={120}
-                              style={{ display: "inline-block" }}
-                            />
-                          </span>
-                        )}
+                              ))}
+                              {v.publishedAt && (
+                                <span className="badge date">
+                                  <PretextLines
+                                    as="span"
+                                    text={new Date(v.publishedAt).toLocaleDateString(undefined, {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                    })}
+                                    font={PT.badgeDate}
+                                    lineHeightPx={PT_LH.badgeDate}
+                                    fixedWidth={120}
+                                    style={{ display: "inline-block" }}
+                                  />
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    </div>
                     <p className="summary-text">
                       <PretextLines
                         as="span"
@@ -2982,71 +2918,6 @@ export default function App() {
                               font={PT.expandBody}
                               lineHeightPx={PT_LH.expandBody}
                             />
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {v.videoId && (
-                      <div className="r-expand">
-                        <button type="button" className="r-expand-btn" onClick={() => toggleLinks(v)}>
-                          <span className={`r-chevron ${openLinks[rowKey] ? "open" : ""}`}>›</span>
-                          <PretextLines
-                            as="span"
-                            text={`Links & downloads (${extraLinks.length})`}
-                            font={PT.expandBtn}
-                            lineHeightPx={PT_LH.expandBtn}
-                            fixedWidth={260}
-                            style={{ display: "inline-block" }}
-                          />
-                        </button>
-                        {openLinks[rowKey] && (
-                          <div className="r-expand-body">
-                            {extraLinks.length === 0 ? (
-                              <p style={{ color: "var(--r-text-faint)", fontSize: 12 }}>
-                                <PretextLines
-                                  as="span"
-                                  text={
-                                    mergedDesc
-                                      ? "No URLs found in the video description."
-                                      : loadingDescId === rowKey
-                                        ? "Loading description…"
-                                        : "Open to load the full description from YouTube, then links appear here."
-                                  }
-                                  font={PT.expandBody}
-                                  lineHeightPx={PT_LH.expandBody}
-                                  fixedWidth={400}
-                                  style={{ display: "inline-block" }}
-                                />
-                              </p>
-                            ) : (
-                              <ul className="link-list">
-                                {extraLinks.map((l) => (
-                                  <li key={l.url}>
-                                    <div className="link-kind">
-                                      <PretextLines
-                                        as="span"
-                                        text={l.kind}
-                                        font={PT.linkKind}
-                                        lineHeightPx={PT_LH.linkKind}
-                                        fixedWidth={120}
-                                        style={{ display: "inline-block" }}
-                                      />
-                                    </div>
-                                    <a href={l.url} target="_blank" rel="noopener noreferrer">
-                                      <PretextLines
-                                        as="span"
-                                        text={`${l.host}${l.kind === "pdf" ? " · PDF" : ""}`}
-                                        font={PT.linkLine}
-                                        lineHeightPx={PT_LH.linkLine}
-                                        fixedWidth={400}
-                                        style={{ display: "inline-block" }}
-                                      />
-                                    </a>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
                           </div>
                         )}
                       </div>

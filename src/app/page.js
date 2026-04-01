@@ -301,7 +301,6 @@ const STYLES = `
       transition-duration: 0.001ms !important;
     }
     .spinner { animation: none !important; border-top-color: var(--r-text); }
-    .r-chevron { transition: none !important; }
   }
 
   .root {
@@ -964,33 +963,68 @@ const STYLES = `
 
   .summary-text { font-size: 13px; color: var(--r-text-muted); line-height: 1.6; margin-bottom: 8px; }
 
-  .r-expand { margin-top: 4px; }
-  .r-expand-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .desc-popover-wrap {
+    margin-top: 8px;
+  }
+  .desc-popover-trigger {
     width: 100%;
+    box-sizing: border-box;
     text-align: left;
-    padding: 8px 0;
-    border: none;
-    border-top: 1px solid var(--r-line);
-    background: none;
-    cursor: pointer;
+    padding: 6px 10px;
     font-size: 11px;
     font-family: var(--r-mono);
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    background: var(--r-surface-hot);
+    cursor: pointer;
+    color: var(--r-text-muted);
+  }
+  .desc-popover-trigger:hover {
+    border-color: var(--r-text-faint);
     color: var(--r-text);
   }
-  .r-expand-btn:hover { color: var(--r-text-muted); }
-  .r-chevron {
-    display: inline-block;
-    font-size: 14px;
-    line-height: 1;
-    transition: transform 0.15s ease;
-    color: var(--r-text-faint);
+  .desc-popover-trigger.is-open {
+    border-color: var(--r-line-focus);
+    color: var(--r-text);
   }
-  .r-chevron.open { transform: rotate(90deg); }
+  .desc-popover-floating {
+    display: flex;
+    flex-direction: column;
+    background: var(--r-bg);
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    box-shadow: 0 8px 28px rgba(38, 18, 1, 0.16);
+    box-sizing: border-box;
+    max-width: min(100vw - 24px, 560px);
+  }
+  .desc-popover-floating-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--r-line);
+    flex-shrink: 0;
+  }
+  .desc-popover-floating-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--r-text-faint);
+    padding: 2px 6px;
+    flex-shrink: 0;
+  }
+  .desc-popover-floating-close:hover { color: var(--r-text); }
+  .desc-popover-floating-inner {
+    margin: 0;
+    padding: 12px 14px;
+    max-height: min(70vh, 480px);
+    overflow-y: auto;
+  }
   .r-expand-body {
     padding: 0 0 12px;
     font-size: 12px;
@@ -1187,8 +1221,9 @@ const STYLES = `
   .big-icon { display: none; }
 
   @media print {
-    [data-tags-popover-floating] { display: none !important; }
-    .toolbar, .rams-skip, .add-row, .ch-td-remove, .remove-btn, .r-expand-btn, .tag-panel { display: none !important; }
+    [data-tags-popover-floating],
+    [data-desc-popover-floating] { display: none !important; }
+    .toolbar, .rams-skip, .add-row, .ch-td-remove, .remove-btn, .desc-popover-trigger, .tag-panel { display: none !important; }
     .root { padding: 0; max-width: none; }
     body { background: #fff; }
   }
@@ -1398,7 +1433,8 @@ export default function App() {
   const digestScrollRef = useRef(null);
   const [channelsPanelHidden, setChannelsPanelHidden] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
-  const [openDesc, setOpenDesc] = useState({});
+  /** Open “original description” popover: position + row key (videoRowKey). */
+  const [descPopover, setDescPopover] = useState(null);
   const [digestChannelIds, setDigestChannelIds] = useState(() => new Set());
   const [visibleChannelIds, setVisibleChannelIds] = useState(() => new Set());
   const [descriptionByVideoId, setDescriptionByVideoId] = useState({});
@@ -1458,7 +1494,45 @@ export default function App() {
 
   useEffect(() => {
     if (viewMode !== "grid") setTagsPopover(null);
+    setDescPopover(null);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (descPopover == null) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setDescPopover(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [descPopover]);
+
+  useEffect(() => {
+    if (descPopover == null) return;
+    const onDoc = (e) => {
+      const t = e.target;
+      if (
+        t instanceof Element &&
+        !t.closest("[data-desc-popover-root]") &&
+        !t.closest("[data-desc-popover-floating]")
+      ) {
+        setDescPopover(null);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [descPopover]);
+
+  useEffect(() => {
+    if (descPopover == null) return;
+    const onScroll = () => setDescPopover(null);
+    const el = digestScrollRef.current;
+    el?.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      el?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [descPopover]);
 
   useEffect(() => {
     const ids = new Set(channels.map((c) => c.id));
@@ -2023,11 +2097,25 @@ export default function App() {
     a.click();
   }, [filtered]);
 
-  const toggleDesc = async (v) => {
+  const openDescriptionPopover = async (v, e) => {
     const k = videoRowKey(v);
-    const willOpen = !openDesc[k];
-    setOpenDesc((o) => ({ ...o, [k]: willOpen }));
-    if (willOpen) await fetchDescriptionIfNeeded(v);
+    if (descPopover?.key === k) {
+      setDescPopover(null);
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    const vw = typeof window !== "undefined" ? window.innerWidth : 400;
+    const w = Math.min(560, Math.max(280, vw - 48));
+    let left = r.left;
+    const maxLeft = Math.max(8, vw - w - 12);
+    if (left > maxLeft) left = maxLeft;
+    setDescPopover({
+      key: k,
+      top: r.bottom + 4,
+      left,
+      width: w,
+    });
+    await fetchDescriptionIfNeeded(v);
   };
 
   return (
@@ -2885,9 +2973,15 @@ export default function App() {
                     />
 
                     {v.videoId && (
-                      <div className="r-expand">
-                        <button type="button" className="r-expand-btn" onClick={() => toggleDesc(v)}>
-                          <span className={`r-chevron ${openDesc[rowKey] ? "open" : ""}`}>›</span>
+                      <div className="desc-popover-wrap" data-desc-popover-root>
+                        <button
+                          type="button"
+                          className={`desc-popover-trigger ${descPopover?.key === rowKey ? "is-open" : ""}`}
+                          onClick={(e) => openDescriptionPopover(v, e)}
+                          aria-expanded={descPopover?.key === rowKey}
+                          aria-controls={`desc-pop-${rowKey}`}
+                          id={`desc-trigger-${rowKey}`}
+                        >
                           <PretextLines
                             as="span"
                             text="Original description"
@@ -2897,29 +2991,63 @@ export default function App() {
                             style={{ display: "inline-block" }}
                           />
                         </button>
-                        {openDesc[rowKey] && loadingDescId === rowKey && !mergedDesc && (
-                          <div className="r-expand-body">
-                            <PretextLines
-                              text="Loading…"
-                              font={PT.expandBody}
-                              lineHeightPx={PT_LH.expandBody}
-                            />
-                          </div>
-                        )}
-                        {openDesc[rowKey] && mergedDesc && (
-                          <div className="r-expand-body desc-linkified">
-                            {linkifyDescription(mergedDesc)}
-                          </div>
-                        )}
-                        {openDesc[rowKey] && !mergedDesc && loadingDescId !== rowKey && (
-                          <div className="r-expand-body" style={{ color: "var(--r-text-faint)" }}>
-                            <PretextLines
-                              text="No description available."
-                              font={PT.expandBody}
-                              lineHeightPx={PT_LH.expandBody}
-                            />
-                          </div>
-                        )}
+                        {descPopover?.key === rowKey &&
+                          typeof document !== "undefined" &&
+                          createPortal(
+                            <div
+                              id={`desc-pop-${rowKey}`}
+                              data-desc-popover-floating
+                              className="desc-popover-floating"
+                              role="dialog"
+                              aria-modal="true"
+                              aria-labelledby={`desc-trigger-${rowKey}`}
+                              style={{
+                                position: "fixed",
+                                top: descPopover.top,
+                                left: descPopover.left,
+                                width: descPopover.width,
+                                zIndex: 10001,
+                              }}
+                            >
+                              <div className="desc-popover-floating-head">
+                                <PretextLines
+                                  as="span"
+                                  text="Original description"
+                                  font={PT.expandBtn}
+                                  lineHeightPx={PT_LH.expandBtn}
+                                  fixedWidth={180}
+                                  style={{ display: "inline-block" }}
+                                />
+                                <button
+                                  type="button"
+                                  className="desc-popover-floating-close"
+                                  onClick={() => setDescPopover(null)}
+                                  aria-label="Close description"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                              <div className="r-expand-body desc-linkified desc-popover-floating-inner">
+                                {loadingDescId === rowKey && !mergedDesc ? (
+                                  <PretextLines
+                                    text="Loading…"
+                                    font={PT.expandBody}
+                                    lineHeightPx={PT_LH.expandBody}
+                                  />
+                                ) : mergedDesc ? (
+                                  linkifyDescription(mergedDesc)
+                                ) : (
+                                  <PretextLines
+                                    text="No description available."
+                                    font={PT.expandBody}
+                                    lineHeightPx={PT_LH.expandBody}
+                                    style={{ color: "var(--r-text-faint)" }}
+                                  />
+                                )}
+                              </div>
+                            </div>,
+                            document.body
+                          )}
                       </div>
                     )}
                     </div>

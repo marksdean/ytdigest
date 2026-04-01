@@ -259,10 +259,20 @@ function parseChannelLookup(raw) {
   return { param: s, isUcId: /^UC[\w-]{22}$/.test(s) };
 }
 
+/** YouTube sometimes returns protocol-relative URLs; ggpht needs a normal https URL. */
+function normalizeChannelThumbUrl(u) {
+  if (u == null || typeof u !== "string") return null;
+  const t = u.trim();
+  if (!t) return null;
+  if (t.startsWith("//")) return `https:${t}`;
+  return t;
+}
+
 function ChannelAvatar({ url, name }) {
   const [failed, setFailed] = useState(false);
   const initial = (name || "?").trim().charAt(0) || "?";
-  if (!url || failed) {
+  const src = normalizeChannelThumbUrl(url);
+  if (!src || failed) {
     return (
       <span className="channel-avatar channel-avatar--placeholder" aria-hidden>
         {initial}
@@ -272,13 +282,12 @@ function ChannelAvatar({ url, name }) {
   return (
     <img
       className="channel-avatar"
-      src={url}
+      src={src}
       alt=""
       width={32}
       height={32}
       loading="lazy"
       decoding="async"
-      referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
   );
@@ -799,6 +808,10 @@ const STYLES = `
     outline: none;
   }
   .tag-search:focus { border-color: var(--r-line-focus); }
+  .tag-search.title-search {
+    flex: 1 1 160px;
+    min-width: 140px;
+  }
   .tag-star-filter {
     flex: 0 0 auto;
     align-items: center;
@@ -1483,6 +1496,8 @@ export default function App() {
   const [videos, setVideos] = useState([]);
   const videosRef = useRef([]);
   const [dbReady, setDbReady] = useState(false);
+  const dbReadyRef = useRef(false);
+  dbReadyRef.current = dbReady;
   
   // Sorting & Filtering
   const [tagFilter, setTagFilter] = useState("All");
@@ -1493,6 +1508,15 @@ export default function App() {
   const digestScrollRef = useRef(null);
   const [channelsPanelHidden, setChannelsPanelHidden] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
+  const [titleQuery, setTitleQuery] = useState("");
+  const thumbFetchDoneRef = useRef(new Set());
+
+  useEffect(() => {
+    const ids = new Set(channels.map((c) => c.id));
+    for (const id of [...thumbFetchDoneRef.current]) {
+      if (!ids.has(id)) thumbFetchDoneRef.current.delete(id);
+    }
+  }, [channels]);
   /** Open “original description” popover: position + row key (videoRowKey). */
   const [descPopover, setDescPopover] = useState(null);
   const [digestChannelIds, setDigestChannelIds] = useState(() => new Set());
@@ -1556,6 +1580,61 @@ export default function App() {
     if (viewMode !== "grid") setTagsPopover(null);
     setDescPopover(null);
   }, [viewMode]);
+
+  /** Backfill channel avatars when URL is missing (inferred channels, failed saves, or protocol-relative URLs). */
+  useEffect(() => {
+    let cancelled = false;
+    const need = channels.filter(
+      (c) =>
+        c.id &&
+        /^UC[\w-]{22}$/.test(c.id) &&
+        !c.thumbnailUrl &&
+        !thumbFetchDoneRef.current.has(c.id)
+    );
+    if (need.length === 0) return;
+    need.forEach((c) => thumbFetchDoneRef.current.add(c.id));
+
+    (async () => {
+      const updates = await Promise.all(
+        need.map(async (c) => {
+          try {
+            const res = await fetch(
+              `/api/youtube?channelId=${encodeURIComponent(c.id)}&channelTitleOnly=1`
+            );
+            const data = await res.json();
+            if (!res.ok) return { id: c.id, thumb: null };
+            return {
+              id: c.id,
+              thumb: normalizeChannelThumbUrl(data.thumbnailUrl ?? null),
+            };
+          } catch {
+            return { id: c.id, thumb: null };
+          }
+        })
+      );
+      if (cancelled) return;
+      setChannels((prev) => {
+        const map = new Map(prev.map((x) => [x.id, { ...x }]));
+        let changed = false;
+        for (const u of updates) {
+          if (u.thumb && map.has(u.id)) {
+            map.get(u.id).thumbnailUrl = u.thumb;
+            changed = true;
+          }
+        }
+        if (!changed) return prev;
+        const next = [...map.values()];
+        if (dbReadyRef.current) {
+          sbFetch("channels", "POST", next.map(channelRowForDb)).catch(() => {});
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [channels]);
 
   useEffect(() => {
     if (descPopover == null) return;
@@ -1673,7 +1752,7 @@ export default function App() {
         const list = chRes.channels.map((c) => ({
           id: c.id,
           name: c.name,
-          thumbnailUrl: c.thumbnail_url ?? null,
+          thumbnailUrl: normalizeChannelThumbUrl(c.thumbnail_url ?? null),
         }));
         const ids = new Set(list.map((c) => c.id));
         prevChannelIdsRef.current = ids;
@@ -1727,7 +1806,9 @@ export default function App() {
         );
         const data = await res.json();
         const resolvedId = res.ok ? data.channelId || parsed.param : parsed.param;
-        const thumb = res.ok ? data.thumbnailUrl ?? null : null;
+        const thumb = normalizeChannelThumbUrl(
+          res.ok ? data.thumbnailUrl ?? null : null
+        );
         setChannels((ch) => [
           ...ch,
           { id: resolvedId, name: overrideName, thumbnailUrl: thumb },
@@ -1759,7 +1840,7 @@ export default function App() {
         return;
       }
       const name = overrideName || data.channelTitle || resolvedId;
-      const thumb = data.thumbnailUrl ?? null;
+      const thumb = normalizeChannelThumbUrl(data.thumbnailUrl ?? null);
       setChannels((c) => [...c, { id: resolvedId, name, thumbnailUrl: thumb }]);
       setNewName("");
       setNewId("");
@@ -2125,6 +2206,14 @@ export default function App() {
         );
       }
     }
+    const tq = titleQuery.trim().toLowerCase();
+    if (tq) {
+      list = list.filter((v) =>
+        decodeHtmlEntities(v.title || "")
+          .toLowerCase()
+          .includes(tq)
+      );
+    }
     list.sort((a, b) => {
       if (sortBy.includes("Date")) {
         const d1 = new Date(a.publishedAt || 0).getTime();
@@ -2136,7 +2225,16 @@ export default function App() {
       return 0;
     });
     return list;
-  }, [videos, tagFilter, visibleChannelNames, sortBy, channels, visibleChannelIds, starredOnly]);
+  }, [
+    videos,
+    tagFilter,
+    titleQuery,
+    visibleChannelNames,
+    sortBy,
+    channels,
+    visibleChannelIds,
+    starredOnly,
+  ]);
 
   const exportJSON = useCallback(() => {
     const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: "application/json" });
@@ -2592,7 +2690,7 @@ export default function App() {
 
         {videos.length > 0 && filtered.length === 0 && (
           <div className="filter-empty-hint" role="status">
-            Nothing matches the current filters. Turn off &quot;Starred only&quot;, set Tags to &quot;All&quot;, or under Channels click &quot;All&quot; next to View so every channel is included.
+            Nothing matches the current filters. Clear the title search, turn off &quot;Starred only&quot;, set Tags to &quot;All&quot;, or under Channels click &quot;All&quot; next to View so every channel is included.
           </div>
         )}
 
@@ -2645,6 +2743,14 @@ export default function App() {
                     />
                   </span>
                 </label>
+                <input
+                  className="tag-search title-search"
+                  type="search"
+                  placeholder="Search titles…"
+                  value={titleQuery}
+                  onChange={(e) => setTitleQuery(e.target.value)}
+                  aria-label="Filter by video title"
+                />
                 <input
                   className="tag-search"
                   type="search"

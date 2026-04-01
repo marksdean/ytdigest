@@ -236,6 +236,19 @@ function videoRowKey(v) {
   return String(v?.id ?? "");
 }
 
+/** When `channels` table is empty but digest rows exist, rebuild channel list from stored channel_id. */
+function inferChannelsFromVideos(videoRows) {
+  const byId = new Map();
+  for (const v of videoRows) {
+    const cid = v.channelId;
+    if (!cid || typeof cid !== "string") continue;
+    if (!byId.has(cid)) {
+      byId.set(cid, { id: cid, name: v.channel || cid });
+    }
+  }
+  return [...byId.values()];
+}
+
 const STYLES = `
   /* Design intent: Dieter Rams’ ten principles for good design — see
      https://uxdesign.cc/dieter-rams-and-ten-principles-for-good-design-61cc32bcd6e6
@@ -1056,6 +1069,20 @@ const STYLES = `
     justify-content: center;
   }
 
+  .filter-empty-hint,
+  .load-hint {
+    padding: 12px 14px;
+    margin-bottom: 1rem;
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    background: var(--r-surface-hot);
+    font-size: 13px;
+    color: var(--r-text-muted);
+    line-height: 1.5;
+  }
+  .filter-empty-hint { border-color: var(--r-sand); }
+  .load-hint { border-color: var(--r-line-muted); }
+
   .empty-state {
     text-align: center;
     padding: 2.5rem 1rem;
@@ -1350,31 +1377,45 @@ export default function App() {
         sbFetch('results'),
       ]);
 
-      if (Array.isArray(chRes?.channels)) {
+      const mapped = Array.isArray(resRes?.results)
+        ? resRes.results.map((r) => ({
+            id: r.id,
+            videoId: r.video_id,
+            title: decodeHtmlEntities(r.title),
+            channel: decodeHtmlEntities(r.channel),
+            channelId: r.channel_id ?? null,
+            publishedAt: r.published_at,
+            tags: normalizeTags(r.tags),
+            summary: r.summary,
+            keyPoints: r.key_points,
+            description: r.description ?? "",
+            starred: Boolean(r.starred),
+            userNote: r.user_note ?? "",
+          }))
+        : null;
+
+      if (mapped) {
+        setVideos(mapped);
+      }
+
+      const hasSavedChannels =
+        Array.isArray(chRes?.channels) && chRes.channels.length > 0;
+      if (hasSavedChannels) {
         const list = chRes.channels.map((c) => ({ id: c.id, name: c.name }));
         const ids = new Set(list.map((c) => c.id));
         prevChannelIdsRef.current = ids;
         setChannels(list);
         setDigestChannelIds(ids);
         setVisibleChannelIds(ids);
-      }
-
-      if (Array.isArray(resRes?.results)) {
-        const mapped = resRes.results.map((r) => ({
-          id: r.id,
-          videoId: r.video_id,
-          title: decodeHtmlEntities(r.title),
-          channel: decodeHtmlEntities(r.channel),
-          channelId: r.channel_id ?? null,
-          publishedAt: r.published_at,
-          tags: normalizeTags(r.tags),
-          summary: r.summary,
-          keyPoints: r.key_points,
-          description: r.description ?? "",
-          starred: Boolean(r.starred),
-          userNote: r.user_note ?? "",
-        }));
-        setVideos(mapped);
+      } else if (mapped?.length) {
+        const inferred = inferChannelsFromVideos(mapped);
+        if (inferred.length > 0) {
+          const ids = new Set(inferred.map((c) => c.id));
+          prevChannelIdsRef.current = ids;
+          setChannels(inferred);
+          setDigestChannelIds(ids);
+          setVisibleChannelIds(ids);
+        }
       }
 
       const loadErrors = [];
@@ -2268,6 +2309,30 @@ export default function App() {
           </div>
         )}
 
+        {videos.length > 0 && filtered.length === 0 && (
+          <div className="filter-empty-hint" role="status">
+            Nothing matches the current filters. Turn off &quot;Starred only&quot;, set Tags to &quot;All&quot;, or under Channels click &quot;All&quot; next to View so every channel is included.
+          </div>
+        )}
+
+        {dbReady &&
+          videos.length > 0 &&
+          channels.length === 0 &&
+          !running && (
+            <div className="load-hint" role="status">
+              Rows are loaded but no channel list was found. Saved items are missing{" "}
+              <code style={{ fontSize: 11 }}>channel_id</code>. Add channels in the panel above
+              (matching each video&apos;s channel), or run a new digest so rows include channel IDs.
+            </div>
+          )}
+
+        {dbReady && videos.length === 0 && channels.length > 0 && !running && !status && (
+          <div className="load-hint" role="status">
+            Channels are saved, but there are no digest rows in the database yet. Use the play
+            button to run a digest (with at least one channel checked under Digest).
+          </div>
+        )}
+
         {videos.length > 0 && (
           <section className="rams-results" aria-label="Digest results">
             <div className="tag-panel">
@@ -2641,7 +2706,10 @@ export default function App() {
           </section>
         )}
 
-        {!running && videos.length === 0 && !status && (
+        {!running &&
+          videos.length === 0 &&
+          !status &&
+          channels.length === 0 && (
           <div className="empty-state">
             <p>
               Add channels, run digest. Results appear below; switch layout between grid and list in the toolbar.

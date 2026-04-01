@@ -1254,7 +1254,11 @@ async function sbFetch(resource, method = 'GET', data = null) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ resource, data }),
   });
-  return res.ok ? res.json().catch(() => ({})) : null;
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: json.error || `HTTP ${res.status}` };
+  }
+  return { ok: true, ...json };
 }
 
 export default function App() {
@@ -1591,7 +1595,15 @@ export default function App() {
     try {
       // Persist updated channel list to Supabase
       if (dbReady) {
-        await sbFetch('channels', 'POST', channels.map(c => ({ id: c.id, name: c.name })));
+        const chSave = await sbFetch(
+          "channels",
+          "POST",
+          channels.map((c) => ({ id: c.id, name: c.name }))
+        );
+        if (chSave?.ok === false) {
+          setStatus(`Could not save channel list: ${chSave.error}`);
+          setStatusType("error");
+        }
       }
 
       const selectedIds = new Set(selectedChannels.map((c) => c.id));
@@ -1660,7 +1672,18 @@ export default function App() {
             user_note: existing?.userNote ?? null,
           };
         });
-        await sbFetch("results", "POST", rows);
+        const saveRes = await sbFetch("results", "POST", rows);
+        if (saveRes && saveRes.ok === false) {
+          setStatus(
+            `Digest ran but saving to the database failed: ${saveRes.error}. Check the Supabase table digest_results and run pending SQL migrations (unique constraint on video_id + channel).`
+          );
+          setStatusType("error");
+        }
+      } else if (!dbReady && newVideos.length > 0) {
+        setStatus(
+          `Done — ${newVideos.length} videos analyzed in this session only. Database did not load on startup (check Supabase env vars), so nothing was saved. Refresh after fixing, then run digest again to persist.`
+        );
+        setStatusType("error");
       }
     }
   };

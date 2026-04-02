@@ -1,24 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-function getClient() {
-  const url = process.env.SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error(
-      'Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY from the Supabase dashboard) to your environment variables.'
-    );
-  }
-  return createClient(url, key);
-}
+import { getServiceSupabase } from '@/lib/supabaseAdmin';
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const resource = searchParams.get('resource');
 
   let supabase;
-  try { supabase = getClient(); } catch (e) {
+  try { supabase = getServiceSupabase(); } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 503 });
   }
 
@@ -42,7 +30,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   let supabase;
-  try { supabase = getClient(); } catch (e) {
+  try { supabase = getServiceSupabase(); } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 503 });
   }
 
@@ -75,6 +63,7 @@ export async function POST(req) {
     if ('starred' in row) patch.starred = Boolean(row.starred);
     if ('user_note' in row) patch.user_note = row.user_note;
     if ('channel_id' in row) patch.channel_id = row.channel_id;
+    if ('read_at' in row) patch.read_at = row.read_at;
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: 'no fields to update' }, { status: 400 });
     }
@@ -110,7 +99,7 @@ export async function POST(req) {
 
 export async function DELETE(req) {
   let supabase;
-  try { supabase = getClient(); } catch (e) {
+  try { supabase = getServiceSupabase(); } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 503 });
   }
 

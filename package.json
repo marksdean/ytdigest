@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "mcp": "node mcp-server/index.js"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.3",

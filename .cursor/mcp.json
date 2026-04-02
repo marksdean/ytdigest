@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "youtube-digest": {
+      "command": "node",
+      "args": ["mcp-server/index.js"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

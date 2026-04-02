@@ -1198,6 +1198,31 @@ const STYLES = `
     border-color: var(--r-selected);
     background: var(--r-surface);
   }
+  .read-toggle {
+    background: var(--r-surface-hot);
+    border: 1px solid var(--r-line);
+    border-radius: var(--r-radius);
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--r-mono);
+    letter-spacing: 0.04em;
+    color: var(--r-text-faint);
+    flex-shrink: 0;
+  }
+  .read-toggle:hover {
+    color: var(--r-text);
+    border-color: var(--r-text-faint);
+  }
+  .read-toggle[aria-pressed="true"] {
+    color: var(--r-text-muted);
+    border-color: var(--r-line);
+  }
+  .video-card.is-unread {
+    box-shadow: inset 3px 0 0 0 var(--r-accent);
+  }
   .card-note-label {
     font-family: var(--r-mono);
     font-size: 9px;
@@ -1444,6 +1469,7 @@ Return ONLY a valid JSON array, no other text.`;
             ),
             starred: false,
             userNote: "",
+            readAt: null,
           };
           processedVideos.push(enriched);
           onVideo(enriched);
@@ -1739,6 +1765,7 @@ export default function App() {
             description: r.description ?? "",
             starred: Boolean(r.starred),
             userNote: r.user_note ?? "",
+            readAt: r.read_at ?? null,
           }))
         : null;
 
@@ -1948,6 +1975,16 @@ export default function App() {
     await persistResultMeta(v, { starred: next });
   };
 
+  const toggleRead = async (v) => {
+    const nextReadAt = v.readAt ? null : new Date().toISOString();
+    setVideos((prev) =>
+      prev.map((p) =>
+        p.videoId === v.videoId && p.channel === v.channel ? { ...p, readAt: nextReadAt } : p
+      )
+    );
+    await persistResultMeta(v, { read_at: nextReadAt });
+  };
+
   const scheduleNoteSave = (v, text) => {
     const k = videoRowKey(v);
     if (noteTimersRef.current[k]) clearTimeout(noteTimersRef.current[k]);
@@ -2126,12 +2163,13 @@ export default function App() {
             description: v.description ?? "",
             starred: existing?.starred ?? false,
             user_note: existing?.userNote ?? null,
+            read_at: existing?.readAt ?? null,
           };
         });
         const saveRes = await sbFetch("results", "POST", rows);
         if (saveRes && saveRes.ok === false) {
           setStatus(
-            `Digest ran but saving to the database failed: ${saveRes.error}. In Supabase SQL Editor, run the migrations under supabase/migrations/ (adds description, channel_id/starred/user_note, and unique index on video_id + channel). If columns exist but the error persists, reload the API schema cache in project settings.`
+            `Digest ran but saving to the database failed: ${saveRes.error}. In Supabase SQL Editor, run the migrations under supabase/migrations/ (adds description, channel_id/starred/user_note/read_at, and unique index on video_id + channel). If columns exist but the error persists, reload the API schema cache in project settings.`
           );
           setStatusType("error");
         }
@@ -2808,10 +2846,11 @@ export default function App() {
                 ).trim();
                 const isGrid = viewMode === "grid";
                 const normalizedTags = normalizeTags(v.tags);
+                const isUnread = !v.readAt;
                 return (
                   <article
                     key={rowKey}
-                    className={`video-card ${isGrid ? "video-card--grid" : ""}`}
+                    className={`video-card ${isGrid ? "video-card--grid" : ""}${isUnread ? " is-unread" : ""}`}
                   >
                     <div className="card-main">
                     <div className="card-top">
@@ -2885,6 +2924,20 @@ export default function App() {
                             onClick={() => toggleStar(v)}
                           >
                             ★
+                          </button>
+                          <button
+                            type="button"
+                            className="read-toggle"
+                            aria-pressed={Boolean(v.readAt)}
+                            aria-label={
+                              v.readAt
+                                ? "Mark as not read"
+                                : "Mark as read"
+                            }
+                            title={v.readAt ? "Marked read — click to show as new" : "Mark as read"}
+                            onClick={() => toggleRead(v)}
+                          >
+                            {v.readAt ? "Read" : "New"}
                           </button>
                           {isGrid ? (
                             <>

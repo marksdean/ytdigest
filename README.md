@@ -24,9 +24,17 @@ A production-ready Next.js application that autonomously monitors specific YouTu
    ```env
    ANTHROPIC_API_KEY=sk-ant-your-key-here
    YOUTUBE_API_KEY=your-youtube-v3-api-key
+   SUPABASE_URL=https://xxxx.supabase.co
+   SUPABASE_SERVICE_KEY=your-service-role-key
+   DIGEST_AGENT_SECRET=generate-a-long-random-secret
+   YTDIGEST_BASE_URL=http://localhost:3000
    ```
+   `DIGEST_AGENT_SECRET` secures `/api/agent/*`. Use the **same** value in Vercel for production. `YTDIGEST_BASE_URL` is the origin MCP tools call (local dev URL above, or your deployed `https://…vercel.app`).
 
-3. **Launch the Architecture**
+3. **Cursor MCP (optional)**
+   This repo includes [`.cursor/mcp.json`](.cursor/mcp.json). It runs [`mcp-server/index.js`](mcp-server/index.js) with `cwd` set to the workspace and loads secrets from **`.env.local`** (see `mcp-server/load-env.js`). Install MCP deps once: `cd mcp-server && npm install`. Then in Cursor, enable the **youtube-digest** MCP server (Settings → MCP) and reload the window if needed. If `${workspaceFolder}` is not expanded on your Cursor version, edit `mcp.json` and set `"cwd"` to the absolute path of this repository.
+
+4. **Launch the Architecture**
    ```bash
    npm run dev
    ```

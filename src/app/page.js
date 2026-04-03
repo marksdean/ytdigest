@@ -249,6 +249,27 @@ function digestIsUnread(readAt) {
   return digestReadAtFromDb(readAt) == null;
 }
 
+function formatPublishedDate(iso) {
+  if (iso == null || iso === "") return "";
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return String(iso);
+  }
+}
+
+function activityLogStamp() {
+  return new Date().toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 /**
  * @returns {{ param: string, isUcId: boolean } | null}
  * `param` is passed to channels.list as id (UC…) or forHandle (handle without @).
@@ -1309,6 +1330,53 @@ const STYLES = `
   .filter-empty-hint { border-color: var(--r-sand); }
   .load-hint { border-color: var(--r-line-muted); }
 
+  .import-log {
+    padding: 12px 14px;
+    margin-bottom: 1rem;
+    border: 1px solid var(--r-line-muted);
+    border-radius: var(--r-radius);
+    background: var(--r-bg);
+    font-size: 12px;
+    color: var(--r-text-muted);
+    line-height: 1.45;
+  }
+  .import-log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--r-text);
+    font-size: 12px;
+  }
+  .import-log-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, "Cascadia Code", "IBM Plex Mono", monospace;
+    font-size: 11px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .btn--small {
+    padding: 4px 10px;
+    font-size: 12px;
+    min-height: 28px;
+  }
+  .read-bulk-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .video-card--grid .card-published-date {
+    font-size: 11px;
+    color: var(--r-text-faint);
+    margin-top: 4px;
+    letter-spacing: 0.01em;
+  }
+
   .empty-state {
     text-align: center;
     padding: 2.5rem 1rem;
@@ -1573,6 +1641,9 @@ export default function App() {
   const [starredOnly, setStarredOnly] = useState(false);
   const [purgeSecretInput, setPurgeSecretInput] = useState("");
   const [purging, setPurging] = useState(false);
+  /** Lines shown after DB load / digest save (activity log). */
+  const [importLog, setImportLog] = useState([]);
+  const [readBulkBusy, setReadBulkBusy] = useState(false);
   const noteTimersRef = useRef({});
 
   useEffect(() => {
@@ -1789,6 +1860,7 @@ export default function App() {
 
       const hasSavedChannels =
         Array.isArray(chRes?.channels) && chRes.channels.length > 0;
+      let inferredChannels = [];
       if (hasSavedChannels) {
         const list = chRes.channels.map((c) => ({
           id: c.id,
@@ -1801,11 +1873,11 @@ export default function App() {
         setDigestChannelIds(ids);
         setVisibleChannelIds(ids);
       } else if (mapped?.length) {
-        const inferred = inferChannelsFromVideos(mapped);
-        if (inferred.length > 0) {
-          const ids = new Set(inferred.map((c) => c.id));
+        inferredChannels = inferChannelsFromVideos(mapped);
+        if (inferredChannels.length > 0) {
+          const ids = new Set(inferredChannels.map((c) => c.id));
           prevChannelIdsRef.current = ids;
-          setChannels(inferred);
+          setChannels(inferredChannels);
           setDigestChannelIds(ids);
           setVisibleChannelIds(ids);
         }
@@ -1819,6 +1891,28 @@ export default function App() {
         setStatusType('error');
       }
       setDbReady(loadErrors.length === 0);
+
+      const t = activityLogStamp();
+      const logLines = [];
+      if (mapped?.length != null) {
+        logLines.push(`[${t}] Loaded ${mapped.length} digest row(s) from the database.`);
+      } else {
+        logLines.push(`[${t}] No digest rows returned (empty or unavailable).`);
+      }
+      if (hasSavedChannels) {
+        const n = chRes.channels.length;
+        logLines.push(`[${t}] Channels: ${n} from saved list.`);
+      } else if (inferredChannels.length > 0) {
+        logLines.push(
+          `[${t}] Channels: inferred ${inferredChannels.length} from digest rows (no saved channel list).`
+        );
+      } else {
+        logLines.push(`[${t}] Channels: none.`);
+      }
+      if (loadErrors.length > 0) {
+        logLines.push(`[${t}] Load incomplete — see status above.`);
+      }
+      setImportLog(logLines);
     }
     loadFromSupabase().catch((e) => {
       setStatus(`Database load failed: ${e?.message || String(e)}`);
@@ -1999,6 +2093,43 @@ export default function App() {
       )
     );
     await persistResultMeta(v, { read_at: nextReadAt });
+  };
+
+  const markAllRead = async () => {
+    if (!dbReady || videos.length === 0) return;
+    setReadBulkBusy(true);
+    try {
+      const res = await sbFetch("results_read_bulk", "POST", { read: true });
+      if (res?.ok === false) {
+        setStatus(res.error || "Could not update read state");
+        setStatusType("error");
+        return;
+      }
+      const now = new Date().toISOString();
+      setVideos((prev) => prev.map((v) => ({ ...v, readAt: now })));
+      const t = activityLogStamp();
+      setImportLog((prev) => [...prev, `[${t}] Marked all digest rows as read.`]);
+    } finally {
+      setReadBulkBusy(false);
+    }
+  };
+
+  const markAllNew = async () => {
+    if (!dbReady || videos.length === 0) return;
+    setReadBulkBusy(true);
+    try {
+      const res = await sbFetch("results_read_bulk", "POST", { read: false });
+      if (res?.ok === false) {
+        setStatus(res.error || "Could not update read state");
+        setStatusType("error");
+        return;
+      }
+      setVideos((prev) => prev.map((v) => ({ ...v, readAt: null })));
+      const t = activityLogStamp();
+      setImportLog((prev) => [...prev, `[${t}] Marked all digest rows as new (unread).`]);
+    } finally {
+      setReadBulkBusy(false);
+    }
   };
 
   const scheduleNoteSave = (v, text) => {
@@ -2188,6 +2319,12 @@ export default function App() {
             `Digest ran but saving to the database failed: ${saveRes.error}. In Supabase SQL Editor, run the migrations under supabase/migrations/ (adds description, channel_id/starred/user_note/read_at, and unique index on video_id + channel). If columns exist but the error persists, reload the API schema cache in project settings.`
           );
           setStatusType("error");
+        } else {
+          const t = activityLogStamp();
+          setImportLog((prev) => [
+            ...prev,
+            `[${t}] Digest: saved ${rows.length} row(s) to the database.`,
+          ]);
         }
       } else if (!dbReady && newVideos.length > 0) {
         setStatus(
@@ -2742,6 +2879,22 @@ export default function App() {
           </div>
         )}
 
+        {importLog.length > 0 && (
+          <div className="import-log" aria-live="polite">
+            <div className="import-log-head">
+              <span>Activity log</span>
+              <button
+                type="button"
+                className="btn btn--small"
+                onClick={() => setImportLog([])}
+              >
+                Clear
+              </button>
+            </div>
+            <pre className="import-log-pre">{importLog.join("\n")}</pre>
+          </div>
+        )}
+
         {videos.length > 0 && filtered.length === 0 && (
           <div className="filter-empty-hint" role="status">
             Nothing matches the current filters. Clear the title search, turn off &quot;Starred only&quot;, set Tags to &quot;All&quot;, or under Channels click &quot;All&quot; next to View so every channel is included.
@@ -2797,6 +2950,26 @@ export default function App() {
                     />
                   </span>
                 </label>
+                {dbReady && videos.length > 0 && (
+                  <span className="read-bulk-actions" role="group" aria-label="Mark read state for all items">
+                    <button
+                      type="button"
+                      className="btn btn--small"
+                      disabled={readBulkBusy}
+                      onClick={() => void markAllRead()}
+                    >
+                      Mark all read
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--small"
+                      disabled={readBulkBusy}
+                      onClick={() => void markAllNew()}
+                    >
+                      Mark all new
+                    </button>
+                  </span>
+                )}
                 <input
                   className="tag-search title-search"
                   type="search"
@@ -2931,6 +3104,18 @@ export default function App() {
                             style={{ display: "block" }}
                           />
                         </div>
+                        {isGrid && v.publishedAt && (
+                          <div className="card-published-date">
+                            <PretextLines
+                              as="span"
+                              text={formatPublishedDate(v.publishedAt)}
+                              font={PT.badgeDate}
+                              lineHeightPx={PT_LH.badgeDate}
+                              fixedWidth={140}
+                              style={{ display: "block" }}
+                            />
+                          </div>
+                        )}
                         <div className="card-actions">
                           <button
                             type="button"

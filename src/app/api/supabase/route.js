@@ -54,6 +54,26 @@ export async function POST(req) {
     return NextResponse.json({ ok: true });
   }
 
+  if (resource === 'results_read_bulk') {
+    const read = data?.read;
+    if (read !== true && read !== false) {
+      return NextResponse.json(
+        { error: 'data.read must be true (mark all read) or false (mark all new)' },
+        { status: 400 }
+      );
+    }
+    const patch =
+      read === true
+        ? { read_at: new Date().toISOString() }
+        : { read_at: null };
+    const { error } = await supabase
+      .from('digest_results')
+      .update(patch)
+      .not('video_id', 'is', null);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   if (resource === 'result_meta') {
     const row = data;
     if (!row?.video_id || row.channel == null) {

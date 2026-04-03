@@ -16,12 +16,21 @@ function getEnv() {
 async function agentFetch(path, init = {}) {
   const { baseUrl, token } = getEnv();
   if (!baseUrl || !token) {
+    const missing = [
+      !baseUrl && 'YTDIGEST_BASE_URL (or MCP_YTDIGEST_BASE_URL)',
+      !token && 'DIGEST_AGENT_SECRET',
+    ]
+      .filter(Boolean)
+      .join(' and ');
     return {
       content: [
         {
           type: 'text',
           text:
-            'Set YTDIGEST_BASE_URL (or MCP_YTDIGEST_BASE_URL) to your deployed app origin and DIGEST_AGENT_SECRET to match the server env.',
+            `Missing: ${missing}.\n\n` +
+            'Add them to `.env.local` in the project root (no quotes needed), or set `env` on this MCP server in Cursor. ' +
+            '`YTDIGEST_BASE_URL` must be the Next app origin only, e.g. `https://your-app.vercel.app` or `http://127.0.0.1:3000`. ' +
+            '`DIGEST_AGENT_SECRET` must match the value in Vercel (production) or `.env.local` (local dev server).',
         },
       ],
       isError: true,
@@ -35,7 +44,22 @@ async function agentFetch(path, init = {}) {
   if (init.body != null && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(url, { ...init, headers });
+  let res;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Network error calling ${url}\n${err?.message || String(err)}\n\n` +
+            'If using localhost, start the app with `npm run dev`. Check YTDIGEST_BASE_URL has no trailing path.',
+        },
+      ],
+      isError: true,
+    };
+  }
   const text = await res.text();
   let payload;
   try {
@@ -46,9 +70,41 @@ async function agentFetch(path, init = {}) {
   const out =
     typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
   if (!res.ok) {
-    return { content: [{ type: 'text', text: out }], isError: true };
+    const snippet =
+      typeof text === 'string' && text.length > 1800
+        ? `${text.slice(0, 1800)}\n…(truncated)`
+        : text;
+    let hint = '';
+    if (res.status === 401) {
+      hint =
+        '\n\n401: Bearer token mismatch. Set DIGEST_AGENT_SECRET in `.env.local` to the exact value configured on the server (Vercel → Environment Variables for your deployment URL).';
+    } else if (res.status === 503) {
+      hint =
+        '\n\n503: Server reports missing DIGEST_AGENT_SECRET. Add it in Vercel env and redeploy, or run Next locally with the same secret in `.env.local`.';
+    } else if (res.status === 404) {
+      hint =
+        '\n\n404: No route at this URL. Point YTDIGEST_BASE_URL at a deployment that includes `/api/agent/*` (redeploy after adding agent routes), or use `http://127.0.0.1:3000` with `npm run dev`.';
+    }
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `HTTP ${res.status} ${res.statusText}\nRequest: ${init.method || 'GET'} ${url}\n\nBody:\n${snippet}${hint}`,
+        },
+      ],
+      isError: true,
+    };
   }
   return { content: [{ type: 'text', text: out }] };
+}
+
+if (typeof process.stderr?.write === 'function') {
+  const { baseUrl, token } = getEnv();
+  if (!baseUrl || !token) {
+    process.stderr.write(
+      '[youtube-digest-mcp] After loading .env.local: need YTDIGEST_BASE_URL and DIGEST_AGENT_SECRET. Tools will return errors until both are set.\n'
+    );
+  }
 }
 
 const server = new McpServer(

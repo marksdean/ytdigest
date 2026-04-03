@@ -32,7 +32,11 @@ A production-ready Next.js application that autonomously monitors specific YouTu
    `DIGEST_AGENT_SECRET` secures `/api/agent/*`. Use the **same** value in Vercel for production. `YTDIGEST_BASE_URL` is the origin MCP tools call (local dev URL above, or your deployed `https://…vercel.app`).
 
 3. **Cursor MCP (optional)**
-   This repo includes [`.cursor/mcp.json`](.cursor/mcp.json). It runs [`mcp-server/index.js`](mcp-server/index.js) with `cwd` set to the workspace and loads secrets from **`.env.local`** (see `mcp-server/load-env.js`). Install MCP deps once: `cd mcp-server && npm install`. Then in Cursor, enable the **youtube-digest** MCP server (Settings → MCP) and reload the window if needed. If `${workspaceFolder}` is not expanded on your Cursor version, edit `mcp.json` and set `"cwd"` to the absolute path of this repository.
+   This repo includes [`.cursor/mcp.json`](.cursor/mcp.json). It runs [`mcp-server/index.js`](mcp-server/index.js) with `cwd` set to the workspace and loads **`YTDIGEST_BASE_URL`** and **`DIGEST_AGENT_SECRET`** from **`.env.local`** (see [`mcp-server/load-env.js`](mcp-server/load-env.js), which also searches upward from the current directory if `cwd` is wrong). Install MCP deps once: `cd mcp-server && npm install`. Then in Cursor, enable the **youtube-digest** MCP server (Settings → MCP) and reload the window if needed. If `${workspaceFolder}` is not expanded on your Cursor version, edit `mcp.json` and set `"cwd"` to the absolute path of this repository.
+
+   **If tools return errors:** `YTDIGEST_BASE_URL` must match where your Next app is running (production URL or `http://127.0.0.1:3000`). `DIGEST_AGENT_SECRET` must match **Vercel env** for that URL (or `.env.local` when using local dev). **401** = secret mismatch; **404** = old deploy without `/api/agent` routes or wrong base URL; **503** = secret not set on the server. Check Cursor’s MCP / Output logs for `[youtube-digest-mcp]` lines.
+
+   **`list_channels` vs the UI:** The app can show channels **inferred from saved digest rows** when the `channels` table is empty. The agent `GET /api/agent/channels` route uses the same inference. Inferred rows include `"inferred": true` and may omit `created_at`. **Redeploy** after pulling so production matches this behavior.
 
 4. **Launch the Architecture**
    ```bash

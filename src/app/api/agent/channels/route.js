@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAgentAuth } from '@/lib/agentAuth';
 import { getServiceSupabase } from '@/lib/supabaseAdmin';
+import { inferChannelsFromVideos } from '@/lib/inferChannelsFromVideos';
 
 export async function GET(req) {
   const denied = requireAgentAuth(req);
@@ -15,7 +16,29 @@ export async function GET(req) {
 
   const { data, error } = await supabase.from('channels').select('*').order('created_at');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ channels: data ?? [] });
+
+  let channels = data ?? [];
+  if (channels.length === 0) {
+    const { data: digestRows, error: digestErr } = await supabase
+      .from('digest_results')
+      .select('channel_id, channel');
+    if (!digestErr && digestRows?.length) {
+      const pseudo = digestRows.map((r) => ({
+        channelId: r.channel_id,
+        channel: r.channel,
+      }));
+      channels = inferChannelsFromVideos(pseudo)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          thumbnail_url: c.thumbnailUrl ?? null,
+          inferred: true,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  }
+
+  return NextResponse.json({ channels });
 }
 
 /**

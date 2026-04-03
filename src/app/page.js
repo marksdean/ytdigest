@@ -45,6 +45,7 @@ function YoutubeMarkIcon() {
 import { createPortal } from "react-dom";
 import { PretextLines } from "@/components/PretextLines";
 import { PT, PT_LH } from "@/lib/pretextFonts";
+import { inferChannelsFromVideos } from "@/lib/inferChannelsFromVideos";
 
 /** Turn bare URLs in description text into clickable links (preserves newlines via parent pre-wrap). */
 function linkifyDescription(text) {
@@ -224,19 +225,6 @@ function videoRowKey(v) {
     return `${v.videoId}::${v.channel}`;
   }
   return String(v?.id ?? "");
-}
-
-/** When `channels` table is empty but digest rows exist, rebuild channel list from stored channel_id. */
-function inferChannelsFromVideos(videoRows) {
-  const byId = new Map();
-  for (const v of videoRows) {
-    const cid = v.channelId;
-    if (!cid || typeof cid !== "string") continue;
-    if (!byId.has(cid)) {
-      byId.set(cid, { id: cid, name: v.channel || cid, thumbnailUrl: null });
-    }
-  }
-  return [...byId.values()];
 }
 
 function channelRowForDb(c) {
@@ -1237,6 +1225,14 @@ const STYLES = `
   .read-toggle[aria-pressed="true"] {
     color: var(--r-text-muted);
     border-color: var(--r-line);
+  }
+  .read-toggle.read-toggle--new {
+    color: var(--r-cancel);
+    border-color: var(--r-cancel);
+  }
+  .read-toggle.read-toggle--new:hover {
+    color: var(--r-cancel-hover);
+    border-color: var(--r-cancel-hover);
   }
   .video-card.is-unread {
     box-shadow: inset 4px 0 0 0 var(--r-sand);
@@ -2947,7 +2943,7 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            className="read-toggle"
+                            className={`read-toggle${digestIsUnread(v.readAt) ? " read-toggle--new" : ""}`}
                             aria-pressed={!digestIsUnread(v.readAt)}
                             aria-label={
                               digestIsUnread(v.readAt)

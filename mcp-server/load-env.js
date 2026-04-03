@@ -1,15 +1,30 @@
 /**
  * Load repo-root `.env.local` into `process.env` before tools run (stdio MCP has no shell env).
- * Does not override variables already set (e.g. Cursor `env` in mcp.json).
+ * - Finds `.env.local` even when Cursor's `cwd` is wrong (walks up from `process.cwd()`).
+ * - Fills vars that are missing *or empty* so a blank `env` in mcp.json does not block values from the file.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const dir = dirname(fileURLToPath(import.meta.url));
-const envLocal = resolve(dir, '../.env.local');
-if (existsSync(envLocal)) {
-  const text = readFileSync(envLocal, 'utf8');
+function findEnvLocalPath() {
+  const fromMcpDir = resolve(dirname(fileURLToPath(import.meta.url)), '../.env.local');
+  if (existsSync(fromMcpDir)) return fromMcpDir;
+
+  let dir = process.cwd();
+  for (let i = 0; i < 10; i++) {
+    const p = join(dir, '.env.local');
+    if (existsSync(p)) return p;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+const envPath = findEnvLocalPath();
+if (envPath) {
+  const text = readFileSync(envPath, 'utf8');
   for (const line of text.split(/\r?\n/)) {
     const t = line.trim();
     if (!t || t.startsWith('#')) continue;
@@ -23,6 +38,10 @@ if (existsSync(envLocal)) {
     ) {
       val = val.slice(1, -1);
     }
-    if (process.env[key] === undefined) process.env[key] = val;
+    const cur = process.env[key];
+    const curEmpty = cur === undefined || cur === null || String(cur).trim() === '';
+    if (curEmpty && val !== '') {
+      process.env[key] = val;
+    }
   }
 }

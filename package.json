@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "mcp": "node mcp-server/index.js"
+    "mcp": "node mcp-server/index.js",
+    "test:mcp": "node mcp-server/test-tools.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.3",

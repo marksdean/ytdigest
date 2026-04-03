@@ -3,6 +3,16 @@ import { requireAgentAuth } from '@/lib/agentAuth';
 import { getServiceSupabase } from '@/lib/supabaseAdmin';
 import { inferChannelsFromVideos } from '@/lib/inferChannelsFromVideos';
 
+/** Omit `thumbnail_url` when empty so PostgREST works if the column is not migrated yet. */
+function channelInsertRow(row) {
+  const out = { id: row.id, name: row.name };
+  const t = row.thumbnail_url;
+  if (t != null && String(t).trim() !== '') {
+    out.thumbnail_url = t;
+  }
+  return out;
+}
+
 export async function GET(req) {
   const denied = requireAgentAuth(req);
   if (denied) return denied;
@@ -82,9 +92,10 @@ export async function POST(req) {
 
   if (mode === 'replace') {
     await supabase.from('channels').delete().neq('id', '___placeholder___');
-    const { error } = await supabase.from('channels').insert(normalized);
+    const rows = normalized.map(channelInsertRow);
+    const { error } = await supabase.from('channels').insert(rows);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, count: normalized.length });
+    return NextResponse.json({ ok: true, count: rows.length });
   }
 
   const { data: existing, error: loadErr } = await supabase.from('channels').select('*');
@@ -100,7 +111,7 @@ export async function POST(req) {
     });
   }
 
-  const merged = [...byId.values()];
+  const merged = [...byId.values()].map(channelInsertRow);
   await supabase.from('channels').delete().neq('id', '___placeholder___');
   const { error } = await supabase.from('channels').insert(merged);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

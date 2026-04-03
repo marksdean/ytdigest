@@ -243,6 +243,24 @@ function channelRowForDb(c) {
   return { id: c.id, name: c.name, thumbnail_url: c.thumbnailUrl ?? null };
 }
 
+/** Normalize `digest_results.read_at` from API/PostgREST (null, ISO string, or rare bad values). */
+function digestReadAtFromDb(raw) {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (t === "" || t === "null") return null;
+    return t;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return new Date(raw).toISOString();
+  }
+  return null;
+}
+
+function digestIsUnread(readAt) {
+  return digestReadAtFromDb(readAt) == null;
+}
+
 /**
  * @returns {{ param: string, isUcId: boolean } | null}
  * `param` is passed to channels.list as id (UC…) or forHandle (handle without @).
@@ -1221,7 +1239,7 @@ const STYLES = `
     border-color: var(--r-line);
   }
   .video-card.is-unread {
-    box-shadow: inset 3px 0 0 0 var(--r-accent);
+    box-shadow: inset 4px 0 0 0 var(--r-sand);
   }
   .card-note-label {
     font-family: var(--r-mono);
@@ -1765,7 +1783,7 @@ export default function App() {
             description: r.description ?? "",
             starred: Boolean(r.starred),
             userNote: r.user_note ?? "",
-            readAt: r.read_at ?? null,
+            readAt: digestReadAtFromDb(r.read_at),
           }))
         : null;
 
@@ -1976,7 +1994,9 @@ export default function App() {
   };
 
   const toggleRead = async (v) => {
-    const nextReadAt = v.readAt ? null : new Date().toISOString();
+    const nextReadAt = digestIsUnread(v.readAt)
+      ? new Date().toISOString()
+      : null;
     setVideos((prev) =>
       prev.map((p) =>
         p.videoId === v.videoId && p.channel === v.channel ? { ...p, readAt: nextReadAt } : p
@@ -2163,7 +2183,7 @@ export default function App() {
             description: v.description ?? "",
             starred: existing?.starred ?? false,
             user_note: existing?.userNote ?? null,
-            read_at: existing?.readAt ?? null,
+            read_at: digestReadAtFromDb(existing?.readAt),
           };
         });
         const saveRes = await sbFetch("results", "POST", rows);
@@ -2846,7 +2866,7 @@ export default function App() {
                 ).trim();
                 const isGrid = viewMode === "grid";
                 const normalizedTags = normalizeTags(v.tags);
-                const isUnread = !v.readAt;
+                const isUnread = digestIsUnread(v.readAt);
                 return (
                   <article
                     key={rowKey}
@@ -2928,16 +2948,20 @@ export default function App() {
                           <button
                             type="button"
                             className="read-toggle"
-                            aria-pressed={Boolean(v.readAt)}
+                            aria-pressed={!digestIsUnread(v.readAt)}
                             aria-label={
-                              v.readAt
-                                ? "Mark as not read"
-                                : "Mark as read"
+                              digestIsUnread(v.readAt)
+                                ? "Mark as read"
+                                : "Mark as not read"
                             }
-                            title={v.readAt ? "Marked read — click to show as new" : "Mark as read"}
+                            title={
+                              digestIsUnread(v.readAt)
+                                ? "New — click to mark as read"
+                                : "Marked read — click to show as new"
+                            }
                             onClick={() => toggleRead(v)}
                           >
-                            {v.readAt ? "Read" : "New"}
+                            {digestIsUnread(v.readAt) ? "New" : "Read"}
                           </button>
                           {isGrid ? (
                             <>
